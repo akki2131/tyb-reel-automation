@@ -18,7 +18,7 @@
 - `tyb_reel_insight_snapshots` — dated Instagram metrics
 - `tyb_learnings` — evidence-backed learning candidates
 
-RLS is enabled and direct access from anon/authenticated roles is revoked. The Storage bucket is private. Privileged access must remain server-side.
+RLS is enabled and direct access from anon/authenticated roles is revoked. The Storage bucket is private. The workflow currently persists the renderer's JSON rotation state in Storage; the database rotation-state table is reserved for a later transactional worker integration. Privileged access must remain server-side.
 
 ## GitHub Actions
 
