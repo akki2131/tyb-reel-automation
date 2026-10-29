@@ -13,10 +13,10 @@ Online generator and Instagram performance-learning infrastructure for The Yogic
 
 - Supabase core schema deployed and verified.
 - RLS enabled on all five TYB tables; direct anon/authenticated table access is revoked.
-- Private storage bucket created.
+- Private storage bucket created, with support for the supplied ZIP.
 - Manual GitHub Actions workflows committed for Reel generation and TYB Edge Function deployment.
 - Supabase Edge Function `fetch-tyb-reel-insights` deployed with JWT verification. It still needs TYB Instagram credentials and an API version configured before a live test.
-- The prototype ZIP's Python renderer, question bank, brand constitution, template images, CTA image, and music files are not yet present in the repository.
+- The generator workflow now downloads the prototype ZIP from private Supabase Storage at runtime, so the 39 MB asset bundle does not need to be committed into Git.
 
 ## First generation milestone
 
@@ -35,6 +35,6 @@ The manually triggered workflow is intended to select an approved question, gene
 
 ## Secrets and costs
 
-Never commit API keys or other credentials. GitHub Actions needs `OPENAI_API_KEY` for live generation and `SUPABASE_ACCESS_TOKEN` to deploy the Edge Function. Supabase Edge Function secrets must include `TYB_INSTAGRAM_ACCESS_TOKEN`, `TYB_INSTAGRAM_USER_ID`, and `TYB_GRAPH_API_VERSION` before insight collection can be tested.
+Never commit API keys or other credentials. GitHub Actions needs `OPENAI_API_KEY`, `SUPABASE_ACCESS_TOKEN`, and `SUPABASE_SERVICE_ROLE_KEY` secrets, plus the `SUPABASE_URL` repository variable. Supabase Edge Function secrets must include `TYB_INSTAGRAM_ACCESS_TOKEN`, `TYB_INSTAGRAM_USER_ID`, and `TYB_GRAPH_API_VERSION` before insight collection can be tested.
 
 The project-creation quote was $0/month for the project itself. GitHub Actions, OpenAI usage, storage, and any additional services may still incur usage-based or account-plan costs. See [docs/PLATFORM_CONNECTIONS.md](docs/PLATFORM_CONNECTIONS.md) for the current connection checklist.
