@@ -59,6 +59,25 @@ jobs:
           mkdir -p output state
           echo "Prototype source and assets imported for this run."
 
+
+      - name: Restore last successful rotation state
+        run: |
+          mkdir -p state
+          code="$(curl --silent --show-error \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -o /tmp/tyb-state.json -w "%{http_code}" \
+            "$SUPABASE_URL/storage/v1/object/tyb-reels/state/state.json")"
+          if [ "$code" = "200" ]; then
+            cp /tmp/tyb-state.json state/state.json
+            echo "Restored successful question and asset rotation state."
+          elif [ "$code" = "404" ]; then
+            echo "No prior state found; the generator will initialise its first state."
+          else
+            echo "::error::Could not restore rotation state from private Storage (HTTP $code)."
+            exit 1
+          fi
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -136,3 +155,20 @@ jobs:
             state/state.json
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Persist rotation state after successful render and artifact upload
+        if: success()
+        run: |
+          if [ ! -f "state/state.json" ]; then
+            echo "::error::The renderer did not create state/state.json; refusing to advance persistent rotation state."
+            exit 1
+          fi
+          curl --fail --silent --show-error --retry 2 \
+            -X POST \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -H "x-upsert: true" \
+            --data-binary @state/state.json \
+            "$SUPABASE_URL/storage/v1/object/tyb-reels/state/state.json"
+          echo "Persisted rotation state after successful render and artifact upload."
