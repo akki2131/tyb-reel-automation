@@ -22,29 +22,34 @@ RLS is enabled and direct access from anon/authenticated roles is revoked. The S
 
 ## GitHub Actions
 
-`.github/workflows/generate-reel.yml` adds a manual workflow dispatch and artifact output. It intentionally checks that the prototype source and all assets exist before attempting to render. The ZIP's Python generator and binary assets have not yet been imported to this repository, so the workflow cannot succeed until that import is completed.
+Two manual workflows are committed:
+- `Generate TYB Reel` — runs the Python renderer and uploads output artifacts after the prototype files have been imported.
+- `Deploy TYB Supabase Function` — deploys the TYB Insights function only to the dedicated TYB project.
 
-Required GitHub Actions repository secret:
+Required GitHub Actions repository secrets:
 - `OPENAI_API_KEY` — a TYB-specific API key from the OpenAI API platform.
+- `SUPABASE_ACCESS_TOKEN` — a Supabase personal access token for deployment.
 
 Optional GitHub Actions repository variable:
 - `OPENAI_MODEL` — defaults to `gpt-4.1-mini`.
 
+The generator workflow deliberately checks for the prototype source and all assets before rendering. The ZIP's Python generator and binary assets have not yet been imported to this repository, so it cannot complete a render yet.
+
 ## Instagram Insights function
 
-The isolated Supabase Edge Function `fetch-tyb-reel-insights` is deployed with JWT verification enabled. It reads recent Instagram media, stores Reel metadata, fetches supported media-insight metrics, and records dated success/error snapshots.
+The isolated Supabase Edge Function `fetch-tyb-reel-insights` is deployed with JWT verification enabled. It reads recent Instagram media, stores Reel metadata, fetches media-insight metrics, and records dated success/error snapshots. The same function source is committed in the TYB repository.
 
-It is not yet operational because TYB Instagram credentials and the current Graph API version have not been configured or tested. Add these **Supabase Edge Function secrets** in the TYB project:
+It is not yet operational because TYB Instagram credentials and the Graph API version have not been configured or tested. Add these **Supabase Edge Function secrets** in the TYB project:
 - `TYB_INSTAGRAM_ACCESS_TOKEN`
 - `TYB_INSTAGRAM_USER_ID`
-- `TYB_GRAPH_API_VERSION` (the current supported version for the connected Instagram API product)
+- `TYB_GRAPH_API_VERSION` (current supported version for the connected Instagram API product)
 
 The function uses Supabase's server-side secret key environment for database writes. Never put Instagram tokens or Supabase secret/service-role keys in browser code, GitHub source, or chat.
 
 ## Remaining connection steps
 
 1. Import the prototype's Python file, workbook, constitution, templates, CTA, and music files into this repository or an authenticated private asset store.
-2. Add the TYB OpenAI key as a GitHub Actions secret.
+2. Add the TYB OpenAI key and Supabase deployment token as GitHub Actions secrets.
 3. Add the three Instagram secrets above in Supabase and authorise the correct Instagram professional account with the required insights permissions.
 4. Invoke the deployed function with an authorised Supabase credential and verify successful snapshots against the account.
 5. Connect the Python renderer to the Supabase job/state/storage tables, then test the end-to-end workflow.
