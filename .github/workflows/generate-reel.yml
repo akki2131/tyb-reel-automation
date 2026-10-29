@@ -152,8 +152,21 @@ jobs:
           DEMO_MODE: ${{ inputs.demo }}
         run: |
           mkdir -p output
+          echo "TYB_DEMO_MODE=$DEMO_MODE" >> "$GITHUB_ENV"
           if [ "$DEMO_MODE" = "true" ]; then
+            if [ -f "state/state.json" ]; then
+              cp state/state.json /tmp/tyb-state-before-demo.json
+              state_existed=true
+            else
+              state_existed=false
+            fi
             python generate_next_reel.py --demo
+            if [ "$state_existed" = "true" ]; then
+              cp /tmp/tyb-state-before-demo.json state/state.json
+            else
+              rm -f state/state.json
+            fi
+            echo "Demo mode: restored prior rotation state; demo question will not be consumed."
           else
             if [ -z "$OPENAI_API_KEY" ]; then
               echo "::error::Add OPENAI_API_KEY in GitHub repository Actions secrets before live generation."
@@ -231,22 +244,29 @@ jobs:
             --argjson cta_index "$cta_index" \
             --argjson duration "$duration" \
             '{job_id:$job_id,question_id:$question_id,approved_question:$question,template_pair:$template_pair,music_index:$music_index,cta_index:$cta_index,duration_seconds:$duration}')"
-          curl --fail --silent --show-error \
-            -X POST \
-            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
-            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
-            -H "Content-Type: application/json" \
-            -H "Prefer: return=minimal" \
-            --data "$reel_payload" \
-            "$SUPABASE_URL/rest/v1/tyb_reels"
+          job_status="succeeded"
+          if [ "$TYB_DEMO_MODE" != "true" ]; then
+            curl --fail --silent --show-error \
+              -X POST \
+              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Content-Type: application/json" \
+              -H "Prefer: return=minimal" \
+              --data "$reel_payload" \
+              "$SUPABASE_URL/rest/v1/tyb_reels"
+          else
+            job_status="needs_review"
+            echo "Demo output is saved for review but is not registered as a production Reel."
+          fi
           completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           job_payload="$(jq -n \
+            --arg job_status "$job_status" \
             --arg video_path "$TYB_VIDEO_PATH" \
             --arg cover_path "$TYB_COVER_PATH" \
             --arg script_path "$TYB_SCRIPT_PATH" \
             --arg completed_at "$completed_at" \
             --argjson script "$script_json" \
-            '{status:"succeeded",video_path:$video_path,cover_path:$cover_path,script_path:$script_path,script:$script,completed_at:$completed_at}')"
+            '{status:$job_status,video_path:$video_path,cover_path:$cover_path,script_path:$script_path,script:$script,completed_at:$completed_at}')"
           curl --fail --silent --show-error \
             -X PATCH \
             -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
@@ -272,7 +292,7 @@ jobs:
             "$SUPABASE_URL/rest/v1/tyb_reel_jobs?id=eq.$TYB_JOB_ID" || true
 
       - name: Persist rotation state after successful render and saved records
-        if: success()
+        if: success() && env.TYB_DEMO_MODE != 'true'
         run: |
           if [ ! -f "state/state.json" ]; then
             echo "::error::The renderer did not create state/state.json; refusing to advance persistent rotation state."
