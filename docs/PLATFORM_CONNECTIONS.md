@@ -7,7 +7,7 @@
 - Supabase project ref: chclxenakskkdpgbidqm
 - Region: ap-south-1 (Mumbai)
 - Project URL: https://chclxenakskkdpgbidqm.supabase.co
-- Private Storage bucket: `tyb-reels` (100 MiB object limit)
+- Private Storage bucket: `tyb-reels` (100 MiB object limit; ZIP uploads allowed)
 - Exducate project is not used by this application and has not been changed.
 
 ## Current Supabase schema
@@ -23,17 +23,26 @@ RLS is enabled and direct access from anon/authenticated roles is revoked. The S
 ## GitHub Actions
 
 Two manual workflows are committed:
-- `Generate TYB Reel` — runs the Python renderer and uploads output artifacts after the prototype files have been imported.
+- `Generate TYB Reel` — imports the prototype from private Storage, runs the Python renderer, and uploads output artifacts.
 - `Deploy TYB Supabase Function` — deploys the TYB Insights function only to the dedicated TYB project.
 
 Required GitHub Actions repository secrets:
-- `OPENAI_API_KEY` — a TYB-specific API key from the OpenAI API platform.
-- `SUPABASE_ACCESS_TOKEN` — a Supabase personal access token for deployment.
+- `OPENAI_API_KEY` — TYB-specific OpenAI API key.
+- `SUPABASE_ACCESS_TOKEN` — Supabase personal access token for function deployment.
+- `SUPABASE_SERVICE_ROLE_KEY` — Supabase server-side service-role key used only to download the private prototype archive in the workflow.
 
-Optional GitHub Actions repository variable:
+Required GitHub Actions repository variable:
+- `SUPABASE_URL` — `https://chclxenakskkdpgbidqm.supabase.co`.
+
+Optional repository variable:
 - `OPENAI_MODEL` — defaults to `gpt-4.1-mini`.
 
-The generator workflow deliberately checks for the prototype source and all assets before rendering. The ZIP's Python generator and binary assets have not yet been imported to this repository, so it cannot complete a render yet.
+### One-time prototype upload
+
+Upload the supplied ZIP to the private bucket at the exact object path:
+`source/TYB_Reel_Generator_v1.zip`
+
+Use the Supabase Storage dashboard for the `tyb-reels` bucket. The ZIP is approximately 39 MB, below the bucket's 100 MiB object limit. The workflow downloads it securely at runtime and extracts only the required source and assets. Do not make the bucket public.
 
 ## Instagram Insights function
 
@@ -48,9 +57,10 @@ The function uses Supabase's server-side secret key environment for database wri
 
 ## Remaining connection steps
 
-1. Import the prototype's Python file, workbook, constitution, templates, CTA, and music files into this repository or an authenticated private asset store.
-2. Add the TYB OpenAI key and Supabase deployment token as GitHub Actions secrets.
+1. Upload the prototype ZIP to the private Storage path specified above.
+2. Add the TYB OpenAI key, Supabase access token, and service-role key as GitHub Actions secrets; add `SUPABASE_URL` as a repository variable.
 3. Add the three Instagram secrets above in Supabase and authorise the correct Instagram professional account with the required insights permissions.
-4. Invoke the deployed function with an authorised Supabase credential and verify successful snapshots against the account.
-5. Connect the Python renderer to the Supabase job/state/storage tables, then test the end-to-end workflow.
-6. Build the learning-analysis step only after real insights are collecting reliably. Automatic publishing is not part of the current deployment.
+4. Run the manual Supabase deployment workflow if you later change the function source.
+5. Invoke the deployed function with an authorised Supabase credential and verify successful snapshots against the account.
+6. Connect the Python renderer to the Supabase job/state/storage tables, then test the end-to-end workflow.
+7. Build the learning-analysis step only after real insights are collecting reliably. Automatic publishing is not part of the current deployment.
