@@ -1,0 +1,109 @@
+name: Generate TYB Reel
+
+on:
+  workflow_dispatch:
+    inputs:
+      demo:
+        description: "Render a demo script without calling OpenAI"
+        type: boolean
+        required: true
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tyb-reel-generation
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-4.1-mini' }}
+    steps:
+      - name: Check out TYB repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install FFmpeg, font, and Python dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-lobster fontconfig
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          FONT_FILE="$(fc-match -f '%{file}' Lobster | head -n 1)"
+          if [ -z "$FONT_FILE" ] || [ ! -f "$FONT_FILE" ]; then
+            echo "::error::Lobster font could not be located."
+            exit 1
+          fi
+          echo "TYB_FONT_PATH=$FONT_FILE" >> "$GITHUB_ENV"
+          ffmpeg -version | head -n 1
+          echo "Lobster font: $FONT_FILE"
+
+      - name: Verify prototype and required assets are present
+        run: |
+          required=(
+            "generate_next_reel.py"
+            "TYB_Question_Bank_v2.xlsx"
+            "assets/Template 1.1.png"
+            "assets/Template 1.2.png"
+            "assets/Template 2.1.png"
+            "assets/Template 2.2.png"
+            "assets/Template 3.1.png"
+            "assets/Template 3.2.png"
+            "assets/Template 4.1.png"
+            "assets/Template 4.2.png"
+            "assets/CTA.png"
+            "assets/BGM1.mp3"
+            "assets/BGM2.mp3"
+            "assets/BGM3.mp3"
+            "assets/BGM4.mp3"
+            "assets/BGM5.mp3"
+          )
+          missing=0
+          for file in "${required[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "::error file=$file::Required prototype file is not in the repository."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "The prototype ZIP must be imported into the repository before this workflow can render."
+            exit 1
+          fi
+
+      - name: Generate and render Reel
+        env:
+          DEMO_MODE: ${{ inputs.demo }}
+        run: |
+          mkdir -p output
+          if [ "$DEMO_MODE" = "true" ]; then
+            python generate_next_reel.py --demo
+          else
+            if [ -z "$OPENAI_API_KEY" ]; then
+              echo "::error::Add OPENAI_API_KEY in GitHub repository Actions secrets before live generation."
+              exit 1
+            fi
+            python generate_next_reel.py
+          fi
+
+      - name: Upload rendered files for review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tyb-reel-output-${{ github.run_number }}
+          path: |
+            output/*.mp4
+            output/*_cover.jpg
+            output/*_script.json
+            state/state.json
+          if-no-files-found: warn
+          retention-days: 14
