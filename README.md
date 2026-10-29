@@ -16,7 +16,7 @@ Online generator and Instagram performance-learning infrastructure for The Yogic
 - Private storage bucket created, with support for the supplied ZIP.
 - Manual GitHub Actions workflows committed for Reel generation and TYB Edge Function deployment.
 - Supabase Edge Function `fetch-tyb-reel-insights` deployed with JWT verification. It still needs TYB Instagram credentials and an API version configured before a live test.
-- The generator workflow now downloads the prototype ZIP from private Supabase Storage at runtime, so the 39 MB asset bundle does not need to be committed into Git.
+- The generator workflow downloads the prototype ZIP from private Supabase Storage at runtime, restores the previous successful rotation state, and persists the updated state only after a successful render and artifact upload. The 39 MB asset bundle does not need to be committed into Git.
 
 ## First generation milestone
 
