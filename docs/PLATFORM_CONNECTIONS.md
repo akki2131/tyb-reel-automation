@@ -48,7 +48,7 @@ Use the Supabase Storage dashboard for the `tyb-reels` bucket. The ZIP is approx
 
 The isolated Supabase Edge Function `fetch-tyb-reel-insights` is deployed with JWT verification enabled. It reads recent Instagram media, stores Reel metadata, fetches media-insight metrics, and records dated success/error snapshots. The same function source is committed in the TYB repository.
 
-It is not yet operational because TYB Instagram credentials and the Graph API version have not been configured or tested. Add these **Supabase Edge Function secrets** in the TYB project:
+It is not yet operational because TYB Instagram credentials and the Graph API version have not been configured or tested. The function currently targets Instagram API with Instagram Login (`graph.instagram.com`), so the connected professional account's token needs the `instagram_business_basic` and `instagram_business_manage_insights` permissions. Do not mix a Facebook Login token/permission model with this endpoint. Add these **Supabase Edge Function secrets** in the TYB project:
 - `TYB_INSTAGRAM_ACCESS_TOKEN`
 - `TYB_INSTAGRAM_USER_ID`
 - `TYB_GRAPH_API_VERSION` (current supported version for the connected Instagram API product)
