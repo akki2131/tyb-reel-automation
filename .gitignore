@@ -1,0 +1,23 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local state and generated media
+state/
+output/
+*.mp4
+*_cover.jpg
+_render_temp/
+
+# Local/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
