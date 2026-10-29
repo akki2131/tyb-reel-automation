@@ -1,0 +1,4 @@
+project_id = "chclxenakskkdpgbidqm"
+
+[functions.fetch-tyb-reel-insights]
+verify_jwt = true
