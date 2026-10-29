@@ -23,9 +23,41 @@ jobs:
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-4.1-mini' }}
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
     steps:
       - name: Check out TYB repository
         uses: actions/checkout@v4
+
+      - name: Import the prototype from private Supabase Storage
+        run: |
+          set -euo pipefail
+          archive="/tmp/TYB_Reel_Generator_v1.zip"
+          if [ -f "TYB_Reel_Generator_v1.zip" ]; then
+            cp "TYB_Reel_Generator_v1.zip" "$archive"
+          else
+            if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+              echo "::error::Upload the prototype ZIP to the private tyb-reels bucket and set SUPABASE_URL (repository variable) plus SUPABASE_SERVICE_ROLE_KEY (repository secret)."
+              exit 1
+            fi
+            curl --fail --silent --show-error --retry 2 \
+              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+              "$SUPABASE_URL/storage/v1/object/tyb-reels/source/TYB_Reel_Generator_v1.zip" \
+              --output "$archive"
+          fi
+          unzip -q "$archive" -d /tmp/tyb-source
+          root="/tmp/tyb-source/TYB_Reel_Generator_v1"
+          test -f "$root/generate_next_reel.py"
+          cp "$root/generate_next_reel.py" ./generate_next_reel.py
+          cp "$root/TYB_Question_Bank_v2.xlsx" ./TYB_Question_Bank_v2.xlsx
+          cp "$root/requirements.txt" ./requirements.txt
+          cp "$root/.env.example" ./.env.example
+          cp "$root/TYB_Brand_Constitution_v1.docx" ./TYB_Brand_Constitution_v1.docx
+          rm -rf ./assets
+          cp -a "$root/assets" ./assets
+          mkdir -p output state
+          echo "Prototype source and assets imported for this run."
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -36,7 +68,7 @@ jobs:
       - name: Install FFmpeg, font, and Python dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-lobster fontconfig
+          sudo apt-get install -y ffmpeg fonts-lobster fontconfig unzip
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
           FONT_FILE="$(fc-match -f '%{file}' Lobster | head -n 1)"
@@ -71,14 +103,11 @@ jobs:
           missing=0
           for file in "${required[@]}"; do
             if [ ! -f "$file" ]; then
-              echo "::error file=$file::Required prototype file is not in the repository."
+              echo "::error file=$file::Required prototype file is missing."
               missing=1
             fi
           done
-          if [ "$missing" -ne 0 ]; then
-            echo "The prototype ZIP must be imported into the repository before this workflow can render."
-            exit 1
-          fi
+          if [ "$missing" -ne 0 ]; then exit 1; fi
 
       - name: Generate and render Reel
         env:
