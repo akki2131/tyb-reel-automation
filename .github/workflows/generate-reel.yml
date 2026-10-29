@@ -37,7 +37,7 @@ jobs:
             cp "TYB_Reel_Generator_v1.zip" "$archive"
           else
             if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
-              echo "::error::Upload the prototype ZIP to the private tyb-reels bucket and set SUPABASE_URL (repository variable) plus SUPABASE_SERVICE_ROLE_KEY (repository secret)."
+              echo "::error::Upload the prototype ZIP to private Storage and configure SUPABASE_URL plus SUPABASE_SERVICE_ROLE_KEY."
               exit 1
             fi
             curl --fail --silent --show-error --retry 2 \
@@ -59,7 +59,6 @@ jobs:
           mkdir -p output state
           echo "Prototype source and assets imported for this run."
 
-
       - name: Restore last successful rotation state
         run: |
           mkdir -p state
@@ -77,6 +76,26 @@ jobs:
             echo "::error::Could not restore rotation state from private Storage (HTTP $code)."
             exit 1
           fi
+
+      - name: Create Supabase job record
+        run: |
+          started_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          payload="$(jq -n --arg started_at "$started_at" '{status:"running", started_at:$started_at}')"
+          response="$(curl --fail --silent --show-error \
+            -X POST \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=representation" \
+            --data "$payload" \
+            "$SUPABASE_URL/rest/v1/tyb_reel_jobs")"
+          job_id="$(printf '%s' "$response" | jq -r '.[0].id // empty')"
+          if [ -z "$job_id" ]; then
+            echo "::error::Supabase did not return a job ID."
+            exit 1
+          fi
+          echo "TYB_JOB_ID=$job_id" >> "$GITHUB_ENV"
+          echo "Created TYB job record: $job_id"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -143,6 +162,40 @@ jobs:
             python generate_next_reel.py
           fi
 
+      - name: Upload rendered files to private Supabase Storage
+        run: |
+          set -euo pipefail
+          video="$(find output -maxdepth 1 -type f -name '*.mp4' -print -quit)"
+          cover="$(find output -maxdepth 1 -type f -name '*_cover.jpg' -print -quit)"
+          script="$(find output -maxdepth 1 -type f -name '*_script.json' -print -quit)"
+          if [ -z "$video" ] || [ -z "$cover" ] || [ -z "$script" ]; then
+            echo "::error::Expected an MP4, cover JPG, and script JSON after rendering."
+            exit 1
+          fi
+          video_path="generated/$TYB_JOB_ID/$(basename "$video")"
+          cover_path="generated/$TYB_JOB_ID/$(basename "$cover")"
+          script_path="generated/$TYB_JOB_ID/$(basename "$script")"
+          upload() {
+            local file="$1"
+            local object_path="$2"
+            local content_type="$3"
+            curl --fail --silent --show-error --retry 2 \
+              -X POST \
+              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Content-Type: $content_type" \
+              -H "x-upsert: true" \
+              --data-binary @"$file" \
+              "$SUPABASE_URL/storage/v1/object/tyb-reels/$object_path"
+          }
+          upload "$video" "$video_path" "video/mp4"
+          upload "$cover" "$cover_path" "image/jpeg"
+          upload "$script" "$script_path" "application/json"
+          echo "TYB_VIDEO_PATH=$video_path" >> "$GITHUB_ENV"
+          echo "TYB_COVER_PATH=$cover_path" >> "$GITHUB_ENV"
+          echo "TYB_SCRIPT_PATH=$script_path" >> "$GITHUB_ENV"
+          echo "Saved rendered files to private Storage."
+
       - name: Upload rendered files for review
         if: always()
         uses: actions/upload-artifact@v4
@@ -156,7 +209,69 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Persist rotation state after successful render and artifact upload
+      - name: Save Reel metadata and mark job successful
+        if: success()
+        run: |
+          set -euo pipefail
+          script_file="$(find output -maxdepth 1 -type f -name '*_script.json' -print -quit)"
+          question_id="$(jq -r '.question_id' "$script_file")"
+          question="$(jq -r '.question' "$script_file")"
+          template_pair="$(jq -r '.template_pair' "$script_file")"
+          music_index="$(jq -r '.music | capture("BGM(?<n>[0-9]+)").n | tonumber' "$script_file")"
+          cta_text="$(jq -r '.cta' "$script_file")"
+          cta_index="$(jq -n --arg cta "$cta_text" '(["Follow for more thoughtful conversations about food.","Know someone who would find this useful? Share this with them.","Have you ever wondered about this? Share your experience below.","Follow us for more food myths explained simply.","Share this with someone who enjoys understanding food better.","Curious about food? You\u0027re in the right place. Follow for more!","What food-related question should we discuss next? Tell us in the comments.","Share this with a health phile you know."] | index($cta)) as $i | if $i == null then null else $i + 1 end')"
+          duration="$(jq -r '.duration_seconds' "$script_file")"
+          script_json="$(jq -c . "$script_file")"
+          reel_payload="$(jq -n \
+            --arg job_id "$TYB_JOB_ID" \
+            --arg question_id "$question_id" \
+            --arg question "$question" \
+            --argjson template_pair "$template_pair" \
+            --argjson music_index "$music_index" \
+            --argjson cta_index "$cta_index" \
+            --argjson duration "$duration" \
+            '{job_id:$job_id,question_id:$question_id,approved_question:$question,template_pair:$template_pair,music_index:$music_index,cta_index:$cta_index,duration_seconds:$duration}')"
+          curl --fail --silent --show-error \
+            -X POST \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=minimal" \
+            --data "$reel_payload" \
+            "$SUPABASE_URL/rest/v1/tyb_reels"
+          completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          job_payload="$(jq -n \
+            --arg video_path "$TYB_VIDEO_PATH" \
+            --arg cover_path "$TYB_COVER_PATH" \
+            --arg script_path "$TYB_SCRIPT_PATH" \
+            --arg completed_at "$completed_at" \
+            --argjson script "$script_json" \
+            '{status:"succeeded",video_path:$video_path,cover_path:$cover_path,script_path:$script_path,script:$script,completed_at:$completed_at}')"
+          curl --fail --silent --show-error \
+            -X PATCH \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=minimal" \
+            --data "$job_payload" \
+            "$SUPABASE_URL/rest/v1/tyb_reel_jobs?id=eq.$TYB_JOB_ID"
+          echo "Saved Reel metadata and marked job succeeded."
+
+      - name: Mark job failed when any prior step fails
+        if: failure() && env.TYB_JOB_ID != ''
+        run: |
+          failed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          payload="$(jq -n --arg failed_at "$failed_at" '{status:"failed",error_code:"workflow_failed",error_message:"A workflow step failed; inspect GitHub Actions logs.",completed_at:$failed_at}')"
+          curl --silent --show-error \
+            -X PATCH \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=minimal" \
+            --data "$payload" \
+            "$SUPABASE_URL/rest/v1/tyb_reel_jobs?id=eq.$TYB_JOB_ID" || true
+
+      - name: Persist rotation state after successful render and saved records
         if: success()
         run: |
           if [ ! -f "state/state.json" ]; then
@@ -171,4 +286,4 @@ jobs:
             -H "x-upsert: true" \
             --data-binary @state/state.json \
             "$SUPABASE_URL/storage/v1/object/tyb-reels/state/state.json"
-          echo "Persisted rotation state after successful render and artifact upload."
+          echo "Persisted rotation state after successful render and saved records."
