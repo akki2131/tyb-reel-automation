@@ -46,7 +46,7 @@ jobs:
               "$SUPABASE_URL/storage/v1/object/tyb-reels/source/TYB_Reel_Generator_v1.zip" \
               --output "$archive"
           fi
-          unzip -q "$archive" -d /tmp/tyb-source
+          python -c "import zipfile; zipfile.ZipFile('$archive').extractall('/tmp/tyb-source')"
           root="/tmp/tyb-source/TYB_Reel_Generator_v1"
           test -f "$root/generate_next_reel.py"
           cp "$root/generate_next_reel.py" ./generate_next_reel.py
@@ -68,7 +68,7 @@ jobs:
       - name: Install FFmpeg, font, and Python dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-lobster fontconfig unzip
+          sudo apt-get install -y ffmpeg fonts-lobster fontconfig
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
           FONT_FILE="$(fc-match -f '%{file}' Lobster | head -n 1)"
