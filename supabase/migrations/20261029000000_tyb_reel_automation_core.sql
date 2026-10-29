@@ -89,3 +89,12 @@ revoke all on public.tyb_reels from anon, authenticated;
 revoke all on public.tyb_rotation_state from anon, authenticated;
 revoke all on public.tyb_reel_insight_snapshots from anon, authenticated;
 revoke all on public.tyb_learnings from anon, authenticated;
+
+-- Private bucket for rendered files; privileged server-side access only.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('tyb-reels', 'tyb-reels', false, 104857600,
+  array['video/mp4','image/jpeg','application/json','text/plain'])
+on conflict (id) do update set
+  public = false,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
