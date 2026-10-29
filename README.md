@@ -1,28 +1,26 @@
 # TYB Reel Automation
 
-Online generator for The Yogic Belief's text-only Instagram Reels.
+Online generator and Instagram performance-learning infrastructure for The Yogic Belief's text-only Reels.
+
+## Separate application infrastructure
+
+- GitHub: https://github.com/akki2131/tyb-reel-automation
+- Supabase project: `chclxenakskkdpgbidqm` in Mumbai (`ap-south-1`)
+- Private storage bucket: `tyb-reels`
+- Exducate is a separate project and is not modified or used by TYB.
 
 ## Current status
 
-This repository is being set up as a separate TYB project. The local prototype and assets are supplied separately in `TYB_Reel_Generator_v1.zip`; binary assets have not yet been installed in this repository or an online asset store.
+- Supabase core schema deployed and verified.
+- RLS enabled on all five TYB tables; direct anon/authenticated table access is revoked.
+- Private storage bucket created.
+- Manual GitHub Actions workflow committed. It will stop with an explicit preflight error until the prototype script and binary assets are imported.
+- Supabase Edge Function `fetch-tyb-reel-insights` deployed with JWT verification. It still needs TYB Instagram credentials and an API version configured before a live test.
+- The prototype ZIP's Python renderer, question bank, brand constitution, template images, CTA image, and music files are not yet present in the repository.
 
-The existing Exducate Supabase project is intentionally not used or modified.
+## First generation milestone
 
-## Intended first milestone
-
-A manually triggered GitHub Actions workflow should:
-1. Select the next approved question.
-2. Generate and validate a customer–chef script.
-3. Render a 1080 × 1920 MP4 using the supplied templates, Lobster font, CTA image, and music.
-4. Save the MP4, cover, script, and rotation state as a downloadable workflow artifact.
-
-This first milestone generates files for review. It does not publish to Instagram.
-
-## Required configuration
-
-The workflow will need an `OPENAI_API_KEY` GitHub Actions secret. Rendering also requires the supplied Question Bank, visual assets, CTA artwork, music files, and a usable Lobster font file to be available to the runner.
-
-Do not commit API keys or other credentials.
+The manually triggered workflow is intended to select an approved question, generate and validate a customer–chef script, render a 1080 × 1920 MP4, and provide the MP4, cover, script, and state as a downloadable workflow artifact. This first milestone does not publish to Instagram.
 
 ## Brand and sequence invariants
 
@@ -35,6 +33,8 @@ Do not commit API keys or other credentials.
 - Question and asset rotations advance only after a successful render and saved output record.
 - Rendering and Instagram publishing are separate operations.
 
-## Cost and publishing
+## Secrets and costs
 
-No paid infrastructure has been provisioned by this repository setup. GitHub Actions usage, AI API usage, and any future storage/runtime costs depend on account limits and execution volume. Instagram publishing is not implemented or authorised by this initial setup.
+Never commit API keys or other credentials. GitHub Actions needs `OPENAI_API_KEY` for live generation. Supabase Edge Function secrets must include `TYB_INSTAGRAM_ACCESS_TOKEN`, `TYB_INSTAGRAM_USER_ID`, and `TYB_GRAPH_API_VERSION` before insight collection can be tested.
+
+The project-creation quote was $0/month for the project itself. GitHub Actions, OpenAI usage, storage, and any additional services may still incur usage-based or account-plan costs. See [docs/PLATFORM_CONNECTIONS.md](docs/PLATFORM_CONNECTIONS.md) for the current connection checklist.
