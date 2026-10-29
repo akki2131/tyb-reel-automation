@@ -14,7 +14,7 @@
 
 - `tyb_reel_jobs` — job state and output references
 - `tyb_reels` — Reel metadata and Instagram media IDs
-- `tyb_rotation_state` — question, template, music, and CTA rotation state
+- `tyb_rotation_state` — reserved for future transactional state; the first renderer currently persists its proven JSON rotation file in private Storage
 - `tyb_reel_insight_snapshots` — dated Instagram metrics
 - `tyb_learnings` — evidence-backed learning candidates
 
