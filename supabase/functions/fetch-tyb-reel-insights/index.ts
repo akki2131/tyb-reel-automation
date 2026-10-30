@@ -38,6 +38,7 @@ Deno.serve(async (req: Request) => {
 
   const token = Deno.env.get("TYB_INSTAGRAM_ACCESS_TOKEN") ?? "";
   const instagramUserId = Deno.env.get("TYB_INSTAGRAM_USER_ID") ?? "";
+  // The selected Meta Unified Login configuration uses a system-user token with the Facebook Graph API host.
   const graphVersion = Deno.env.get("TYB_GRAPH_API_VERSION") ?? "";
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const serviceKey = getSecretKey();
@@ -70,7 +71,7 @@ Deno.serve(async (req: Request) => {
     // Default limit is used.
   }
 
-  const mediaUrl = new URL(`https://graph.instagram.com/${graphVersion}/${encodeURIComponent(instagramUserId)}/media`);
+  const mediaUrl = new URL(`https://graph.facebook.com/${graphVersion}/${encodeURIComponent(instagramUserId)}/media`);
   mediaUrl.searchParams.set("fields", "id,caption,media_type,media_product_type,timestamp,permalink");
   mediaUrl.searchParams.set("limit", String(limit));
   mediaUrl.searchParams.set("access_token", token);
@@ -82,7 +83,7 @@ Deno.serve(async (req: Request) => {
       error: "Instagram media lookup failed.",
       status: mediaResponse.status,
       details: cleanError(mediaPayload?.error ?? mediaPayload, token),
-      hint: "Verify the token, account ID, API version, and Instagram insights permissions.",
+      hint: "This function is configured for Meta Unified Login (graph.facebook.com). Verify the system-user token, Instagram professional account ID, API version, and instagram_basic + instagram_manage_insights permissions. If using a different login flow, align the API host and token type.",
     }, 502);
   }
 
@@ -118,7 +119,7 @@ Deno.serve(async (req: Request) => {
       continue;
     }
 
-    const insightUrl = new URL(`https://graph.instagram.com/${graphVersion}/${encodeURIComponent(String(media.id))}/insights`);
+    const insightUrl = new URL(`https://graph.facebook.com/${graphVersion}/${encodeURIComponent(String(media.id))}/insights`);
     insightUrl.searchParams.set("metric", metricNames.join(","));
     insightUrl.searchParams.set("access_token", token);
 
