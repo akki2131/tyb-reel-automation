@@ -98,10 +98,11 @@ Deno.serve(async (req: Request) => {
 
   for (const media of reels) {
     const caption = String(media.caption ?? "").slice(0, 4000);
-    const question = caption.split(/\r?\n/).map((s: string) => s.trim()).find(Boolean) || "Instagram Reel";
     const reelRow = {
       question_id: `IG-${media.id}`,
-      approved_question: question,
+      // This row represents imported Instagram media, not an approved content question.
+      // Keep the caption only in the dedicated caption column.
+      approved_question: `Imported Instagram Reel ${media.id}`,
       instagram_media_id: String(media.id),
       permalink: media.permalink ?? null,
       published_at: media.timestamp ?? null,
