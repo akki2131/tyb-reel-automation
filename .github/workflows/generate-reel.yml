@@ -1,6 +1,8 @@
 name: Generate TYB Reel
 
 on:
+  schedule:
+    - cron: '0 12 * * *' # 5:30 PM IST daily
   workflow_dispatch:
     inputs:
       demo:
@@ -149,7 +151,7 @@ jobs:
 
       - name: Generate and render Reel
         env:
-          DEMO_MODE: ${{ inputs.demo }}
+          DEMO_MODE: ${{ github.event_name == 'schedule' && 'false' || inputs.demo }}
         run: |
           mkdir -p output
           echo "TYB_DEMO_MODE=$DEMO_MODE" >> "$GITHUB_ENV"
