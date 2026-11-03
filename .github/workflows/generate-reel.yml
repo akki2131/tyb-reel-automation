@@ -175,6 +175,46 @@ jobs:
             python generate_next_reel.py
           fi
 
+      - name: Generate Instagram caption
+        run: |
+          set -euo pipefail
+          script_file="$(find output -maxdepth 1 -type f -name '*_script.json' -print -quit)"
+          if [ -z "$script_file" ]; then
+            echo "::error::Cannot generate caption because the script JSON is missing."
+            exit 1
+          fi
+          question="$(jq -r '.question' "$script_file")"
+          if [ "$TYB_DEMO_MODE" = "true" ]; then
+            caption="A thoughtful food question, explained simply. What do you think? Share your thoughts below. Follow @yogicbelief for more mindful food conversations. #TheYogicBelief #FoodForThought #HealthyLiving"
+          else
+            caption_prompt="$(jq -n --arg question "$question" --arg script "$(cat "$script_file")" '{
+              question:$question,
+              reel_script:$script,
+              instructions:"Write one polished Instagram caption for The Yogic Belief (@yogicbelief), a thoughtful healthy-food brand. Start with an engaging opening line; add a short, accurate description tied to the question; include a natural engagement prompt; finish with 4-8 relevant hashtags. Natural Indian English, warm, clear, concise, brand-consistent. Do not mention specific menu-item names. Do not invent health or medical claims. Do not describe the Reel as AI-generated. Return only the caption, no quotation marks, headings, or explanations."
+            }')"
+            response="$(curl --fail --silent --show-error --retry 2 \
+              -X POST "https://api.openai.com/v1/chat/completions" \
+              -H "Authorization: Bearer $OPENAI_API_KEY" \
+              -H "Content-Type: application/json" \
+              --data "$(jq -n --arg model "$OPENAI_MODEL" --argjson prompt "$caption_prompt" '{
+                model:$model,
+                messages:[
+                  {role:"system",content:"You are a careful social-media copywriter for a healthy-food brand. Follow the supplied constraints exactly."},
+                  {role:"user",content:($prompt|tojson)}
+                ],
+                temperature:0.7
+              }')")"
+            caption="$(printf '%s' "$response" | jq -er '.choices[0].message.content | strings | gsub("^\\s+|\\s+$"; "")')"
+          fi
+          if [ -z "$caption" ] || [ "${#caption}" -gt 2200 ]; then
+            echo "::error::Generated Instagram caption is empty or exceeds the 2,200-character limit."
+            exit 1
+          fi
+          jq --arg caption "$caption" '. + {instagram_caption:$caption}' "$script_file" > "$script_file.tmp"
+          mv "$script_file.tmp" "$script_file"
+          printf '%s\n' "$caption" > output/instagram_caption.txt
+          echo "Generated and validated Instagram caption (${#caption} characters)."
+
       - name: Upload rendered files to private Supabase Storage
         run: |
           set -euo pipefail
@@ -234,16 +274,22 @@ jobs:
           cta_text="$(jq -r '.cta' "$script_file")"
           cta_index="$(jq -n --arg cta "$cta_text" '(["Follow for more thoughtful conversations about food.","Know someone who would find this useful? Share this with them.","Have you ever wondered about this? Share your experience below.","Follow us for more food myths explained simply.","Share this with someone who enjoys understanding food better.","Curious about food? You\u0027re in the right place. Follow for more!","What food-related question should we discuss next? Tell us in the comments.","Share this with a health phile you know."] | index($cta)) as $i | if $i == null then null else $i + 1 end')"
           duration="$(jq -r '.duration_seconds' "$script_file")"
+          caption="$(jq -r '.instagram_caption // empty' "$script_file")"
+          if [ -z "$caption" ]; then
+            echo "::error::Instagram caption missing from script JSON."
+            exit 1
+          fi
           script_json="$(jq -c . "$script_file")"
           reel_payload="$(jq -n \
             --arg job_id "$TYB_JOB_ID" \
             --arg question_id "$question_id" \
             --arg question "$question" \
+            --arg caption "$caption" \
             --argjson template_pair "$template_pair" \
             --argjson music_index "$music_index" \
             --argjson cta_index "$cta_index" \
             --argjson duration "$duration" \
-            '{job_id:$job_id,question_id:$question_id,approved_question:$question,template_pair:$template_pair,music_index:$music_index,cta_index:$cta_index,duration_seconds:$duration}')"
+            '{job_id:$job_id,question_id:$question_id,approved_question:$question,caption:$caption,template_pair:$template_pair,music_index:$music_index,cta_index:$cta_index,duration_seconds:$duration}')
           job_status="succeeded"
           if [ "$TYB_DEMO_MODE" != "true" ]; then
             curl --fail --silent --show-error \
@@ -307,3 +353,22 @@ jobs:
             --data-binary @state/state.json \
             "$SUPABASE_URL/storage/v1/object/tyb-reels/state/state.json"
           echo "Persisted rotation state after successful render and saved records."
+
+      - name: Publish Reel to Instagram immediately
+        if: success() && env.TYB_DEMO_MODE != 'true'
+        run: |
+          set -euo pipefail
+          payload="$(jq -n --arg job_id "$TYB_JOB_ID" '{job_id:$job_id}')"
+          response="$(curl --fail --silent --show-error --retry 0 \
+            -X POST \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            --data "$payload" \
+            "$SUPABASE_URL/functions/v1/publish-tyb-reel")"
+          printf '%s\n' "$response" | jq .
+          if [ "$(printf '%s' "$response" | jq -r '.ok // false')" != "true" ]; then
+            echo "::error::Instagram publishing function did not confirm success."
+            exit 1
+          fi
+          echo "Instagram Reel published successfully."
