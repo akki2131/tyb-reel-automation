@@ -126,7 +126,7 @@ jobs:
           ffmpeg -version | head -n 1
           echo "Lobster font: $FONT_FILE"
 
-      - name: Verify prototype and required assets are present
+      - name: Verify repository generator and required assets are present
         run: |
           required=(
             "generate_next_reel.py"
@@ -149,7 +149,7 @@ jobs:
           missing=0
           for file in "${required[@]}"; do
             if [ ! -f "$file" ]; then
-              echo "::error file=$file::Required prototype file is missing."
+              echo "::error file=$file::Required repository file is missing."
               missing=1
             fi
           done
