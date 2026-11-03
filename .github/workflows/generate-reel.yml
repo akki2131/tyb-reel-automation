@@ -370,19 +370,26 @@ jobs:
 
       - name: Publish Reel to Instagram immediately
         if: success() && env.TYB_DEMO_MODE != 'true' && (inputs.publish == true)
+        shell: bash
         run: |
           set -euo pipefail
           payload="$(jq -n --arg job_id "$TYB_JOB_ID" '{job_id:$job_id}')"
-          response="$(curl --fail --silent --show-error --retry 0 \
+          http_code="$(curl --silent --show-error --retry 0 \
             -X POST \
             -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Content-Type: application/json" \
             --data "$payload" \
+            -o /tmp/tyb-publish-response.json \
+            -w "%{http_code}" \
             "$SUPABASE_URL/functions/v1/publish-tyb-reel")"
-          printf '%s\n' "$response" | jq .
-          if [ "$(printf '%s' "$response" | jq -r '.ok // false')" != "true" ]; then
-            echo "::error::Instagram publishing function did not confirm success."
+          echo "Publishing function HTTP status: $http_code"
+          echo "Publishing function response:"
+          cat /tmp/tyb-publish-response.json
+          echo
+          if ! jq -e '.ok == true and .published == true' /tmp/tyb-publish-response.json >/dev/null 2>&1; then
+            echo "::error::Instagram publishing function did not confirm success (HTTP $http_code)."
             exit 1
           fi
+          jq . /tmp/tyb-publish-response.json
           echo "Instagram Reel published successfully."
