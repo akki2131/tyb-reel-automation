@@ -68,20 +68,26 @@ jobs:
           echo "Using version-controlled generator source and assets from this repository checkout."
 
       - name: Restore last successful rotation state
+        shell: bash
         run: |
+          set -euo pipefail
           mkdir -p state
           code="$(curl --silent --show-error \
             -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
-            -o /tmp/tyb-state.json -w "%{http_code}" \
+            -o /tmp/tyb-state-response.json -w "%{http_code}" \
             "$SUPABASE_URL/storage/v1/object/tyb-reels/state/state.json")"
           if [ "$code" = "200" ]; then
-            cp /tmp/tyb-state.json state/state.json
+            cp /tmp/tyb-state-response.json state/state.json
             echo "Restored successful question and asset rotation state."
-          elif [ "$code" = "404" ]; then
-            echo "No prior state found; the generator will initialise its first state."
+          elif [ "$code" = "404" ] || { [ "$code" = "400" ] && grep -Eiq '"(error|message)"[[:space:]]*:[[:space:]]*"([^"]*object[^"]*not found|the resource was not found|no such key)' /tmp/tyb-state-response.json; }; then
+            echo "No prior rotation-state object exists yet; the generator will initialise its first state."
+            printf '{}\n' > state/state.json
           else
             echo "::error::Could not restore rotation state from private Storage (HTTP $code)."
+            echo "Supabase response (credentials are not included):"
+            head -c 1000 /tmp/tyb-state-response.json || true
+            echo
             exit 1
           fi
 
