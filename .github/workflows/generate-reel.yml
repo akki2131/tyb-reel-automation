@@ -10,6 +10,11 @@ on:
         type: boolean
         required: true
         default: true
+      publish:
+        description: "Publish to Instagram immediately (leave off for first review)"
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
@@ -357,7 +362,7 @@ jobs:
           echo "Persisted rotation state after successful render and saved records."
 
       - name: Publish Reel to Instagram immediately
-        if: success() && env.TYB_DEMO_MODE != 'true'
+        if: success() && env.TYB_DEMO_MODE != 'true' && (github.event_name == 'schedule' || inputs.publish == true)
         run: |
           set -euo pipefail
           payload="$(jq -n --arg job_id "$TYB_JOB_ID" '{job_id:$job_id}')"
