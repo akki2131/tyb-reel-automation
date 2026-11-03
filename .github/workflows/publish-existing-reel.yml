@@ -1,0 +1,63 @@
+name: Publish Existing TYB Reel
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: "Existing successful TYB reel job ID to publish"
+        type: string
+        required: true
+      confirm:
+        description: "Confirm publishing this existing Reel to Instagram"
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tyb-publish-existing
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: inputs.confirm == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TYB_JOB_ID: ${{ inputs.job_id }}
+    steps:
+      - name: Validate inputs and publish existing Reel
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$SUPABASE_URL" || -z "$SUPABASE_SERVICE_ROLE_KEY" ]]; then
+            echo "::error::SUPABASE_URL variable and SUPABASE_SERVICE_ROLE_KEY secret are required."
+            exit 1
+          fi
+          if [[ ! "$TYB_JOB_ID" =~ ^[0-9a-fA-F-]{36}$ ]]; then
+            echo "::error::Provide a valid UUID for the existing job_id."
+            exit 1
+          fi
+          payload="$(jq -n --arg job_id "$TYB_JOB_ID" '{job_id:$job_id}')"
+          http_code="$(curl --silent --show-error --retry 0 \
+            -X POST \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            --data "$payload" \
+            -o /tmp/tyb-publish-response.json \
+            -w "%{http_code}" \
+            "$SUPABASE_URL/functions/v1/publish-tyb-reel")"
+          echo "Publishing function HTTP status: $http_code"
+          echo "Publishing function response:"
+          cat /tmp/tyb-publish-response.json
+          echo
+          if ! jq -e '.ok == true and .published == true' /tmp/tyb-publish-response.json >/dev/null 2>&1; then
+            echo "::error::Instagram publishing function did not confirm success (HTTP $http_code)."
+            exit 1
+          fi
+          echo "Existing Reel published successfully."
