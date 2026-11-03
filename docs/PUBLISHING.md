@@ -2,7 +2,7 @@
 
 ## Production flow
 
-The production GitHub Actions workflow now:
+The production GitHub Actions workflow now runs daily at **5:30 PM IST** (`12:00 UTC`) and:
 1. Generates and renders the Reel using the existing generator.
 2. Generates a brand-consistent Instagram caption with the configured OpenAI model.
 3. Stores the MP4, cover and enriched script JSON in the private `tyb-reels` Storage bucket.
@@ -31,15 +31,11 @@ The System User token must include `instagram_basic`, `instagram_content_publish
 
 ## Collaborators
 
-The publishing function accepts up to three optional collaborator usernames from the Supabase Edge Function secret `TYB_INSTAGRAM_COLLABORATORS`, comma-separated and without the leading @ being required. Each invitation remains pending until the collaborator accepts it in Instagram. Leave this unset to publish without collaborators.
+The publishing function defaults to inviting **`akshayaverma`** as the Reel collaborator. An optional Supabase Edge Function secret `TYB_INSTAGRAM_COLLABORATORS` can override this with up to three comma-separated usernames. Each invitation remains pending until the collaborator accepts it in Instagram.
 
 ## Instagram Stories
 
-The first version publishes the Reel to the Instagram feed/Reels surface. Publishing a separate video Story is possible through Meta's content publishing API for eligible professional accounts, but it is a separate media publication—not the native Instagram action of sharing the Reel with its interactive Reel preview. Story publishing is intentionally not enabled by default until the owner chooses the desired behavior.
-
-## WhatsApp Status
-
-The official WhatsApp Business Platform API does not provide a supported endpoint for publishing a WhatsApp Status. A status-ready MP4 can be generated and made available for manual sharing, but posting it directly to Status is not part of this API workflow.
+The first version publishes the Reel to the Instagram feed/Reels surface. Publishing a separate video Story is possible through Meta's content publishing API for eligible professional accounts, but it is a separate media publication—not the native Instagram action of sharing the Reel with its interactive Reel preview. Story publishing is intentionally disabled. The workflow publishes one Reel only; it does not upload duplicate media as a separate Story.
 
 ## Operational safety
 
