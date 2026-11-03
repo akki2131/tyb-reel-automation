@@ -15,7 +15,9 @@ Online generator and Instagram performance-learning infrastructure for The Yogic
 - RLS enabled on all five TYB tables; direct anon/authenticated table access is revoked.
 - Private storage bucket created, with support for the supplied ZIP.
 - Manual GitHub Actions workflows committed for Reel generation and TYB Edge Function deployment.
-- Supabase Edge Function `fetch-tyb-reel-insights` deployed with JWT verification. It still needs TYB Instagram credentials and an API version configured before a live test.
+- Supabase Edge Function `fetch-tyb-reel-insights` deployed and successfully tested with the TYB Instagram System User token.
+- Supabase Edge Function `publish-tyb-reel` deployed with JWT verification. Production generation now creates a brand-consistent caption, saves it with the Reel metadata, and invokes publishing immediately; demo mode never publishes.
+- Automatic publishing state is tracked on `tyb_reels` using `publish_status`, `publish_error`, and `instagram_container_id`.
 - The generator workflow downloads the prototype ZIP from private Supabase Storage at runtime, restores the previous successful rotation state, stores the MP4/cover/script in private Storage, writes job and Reel records, and persists updated state only after a successful render and artifact upload. Demo runs are marked `needs_review` and do not consume rotation state. The 39 MB asset bundle does not need to be committed into Git.
 
 ## First generation milestone
@@ -38,3 +40,7 @@ The manually triggered workflow is intended to select an approved question, gene
 Never commit API keys or other credentials. GitHub Actions needs `OPENAI_API_KEY`, `SUPABASE_ACCESS_TOKEN`, and `SUPABASE_SERVICE_ROLE_KEY` secrets, plus the `SUPABASE_URL` repository variable. Supabase Edge Function secrets must include `TYB_INSTAGRAM_ACCESS_TOKEN`, `TYB_INSTAGRAM_USER_ID`, and `TYB_GRAPH_API_VERSION` before insight collection can be tested.
 
 The project-creation quote was $0/month for the project itself. GitHub Actions, OpenAI usage, storage, and any additional services may still incur usage-based or account-plan costs. See [docs/PLATFORM_CONNECTIONS.md](docs/PLATFORM_CONNECTIONS.md) for the current connection checklist.
+
+## Publishing
+
+See [docs/PUBLISHING.md](docs/PUBLISHING.md) for the automatic publishing flow, required configuration, optional collaborator invitations, and the current Instagram Story / WhatsApp Status limitations.
