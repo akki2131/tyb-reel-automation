@@ -1,0 +1,124 @@
+name: Migrate TYB Reel Generator into Repository
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Confirm one-time migration of generator code and assets from private Supabase Storage"
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tyb-generator-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    if: inputs.confirm == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download and validate existing generator archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$SUPABASE_URL" || -z "$SUPABASE_SERVICE_ROLE_KEY" ]]; then
+            echo "::error::SUPABASE_URL repository variable and SUPABASE_SERVICE_ROLE_KEY repository secret are required for this one-time migration."
+            exit 1
+          fi
+          archive="/tmp/TYB_Reel_Generator_v1.zip"
+          curl --fail --silent --show-error --retry 2 \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            "$SUPABASE_URL/storage/v1/object/tyb-reels/source/TYB_Reel_Generator_v1.zip" \
+            --output "$archive"
+          python - <<'PY'
+          import zipfile
+          p = "/tmp/TYB_Reel_Generator_v1.zip"
+          with zipfile.ZipFile(p) as z:
+              bad = z.testzip()
+              if bad:
+                  raise SystemExit(f"Archive integrity check failed at: {bad}")
+              names = set(z.namelist())
+              root = "TYB_Reel_Generator_v1/"
+              required = [
+                  root + "generate_next_reel.py",
+                  root + "TYB_Question_Bank_v2.xlsx",
+                  root + "TYB_Brand_Constitution_v1.docx",
+              ]
+              required += [root + "assets/" + n for n in [
+                  "Template 1.1.png", "Template 1.2.png",
+                  "Template 2.1.png", "Template 2.2.png",
+                  "Template 3.1.png", "Template 3.2.png",
+                  "Template 4.1.png", "Template 4.2.png",
+                  "CTA.png", "BGM1.mp3", "BGM2.mp3", "BGM3.mp3",
+                  "BGM4.mp3", "BGM5.mp3",
+              ]]
+              missing = [n for n in required if n not in names]
+              if missing:
+                  raise SystemExit("Archive is missing required files: " + ", ".join(missing))
+              print(f"Archive validated: {len(names)} entries, {sum(i.file_size for i in z.infolist()):,} uncompressed bytes.")
+          PY
+
+      - name: Migrate generator source and assets into Git
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          python - <<'PY'
+          import zipfile
+          from pathlib import Path
+          archive = "/tmp/TYB_Reel_Generator_v1.zip"
+          root = "TYB_Reel_Generator_v1/"
+          targets = [
+              "generate_next_reel.py",
+              "TYB_Question_Bank_v2.xlsx",
+              "TYB_Brand_Constitution_v1.docx",
+          ]
+          with zipfile.ZipFile(archive) as z:
+              for rel in targets:
+                  dest = Path(rel)
+                  dest.parent.mkdir(parents=True, exist_ok=True)
+                  dest.write_bytes(z.read(root + rel))
+              for name in z.namelist():
+                  prefix = root + "assets/"
+                  if name.startswith(prefix) and not name.endswith("/"):
+                      rel = name[len(prefix):]
+                      dest = Path("assets") / rel
+                      dest.parent.mkdir(parents=True, exist_ok=True)
+                      dest.write_bytes(z.read(name))
+          PY
+          test -f generate_next_reel.py
+          test -f TYB_Question_Bank_v2.xlsx
+          test -f TYB_Brand_Constitution_v1.docx
+          test -f "assets/Template 1.1.png"
+          test -f "assets/CTA.png"
+          test -f "assets/BGM5.mp3"
+          echo "Generator source, question bank, brand constitution and 14 runtime assets are now present in the repository."
+
+      - name: Commit migrated files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add generate_next_reel.py TYB_Question_Bank_v2.xlsx TYB_Brand_Constitution_v1.docx assets/
+          if git diff --cached --quiet; then
+            echo "No migration changes to commit; files may already be present."
+            exit 0
+          fi
+          git commit -m "Migrate TYB Reel generator and assets into repository"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+          echo "Migration committed to ${GITHUB_REF_NAME}."
