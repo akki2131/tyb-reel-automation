@@ -1,6 +1,8 @@
 name: Generate TYB Reel
 
 on:
+  schedule:
+    - cron: '0 12 * * *' # 5:30 PM India Standard Time (UTC+5:30)
   workflow_dispatch:
     inputs:
       demo:
@@ -9,7 +11,7 @@ on:
         required: true
         default: true
       publish:
-        description: "Publish to Instagram immediately (leave off for first review)"
+        description: "Publish to Instagram immediately"
         type: boolean
         required: true
         default: false
@@ -123,14 +125,24 @@ jobs:
           sudo apt-get install -y ffmpeg fonts-lobster fontconfig
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
-          FONT_FILE="$(fc-match -f '%{file}' Lobster | head -n 1)"
-          if [ -z "$FONT_FILE" ] || [ ! -f "$FONT_FILE" ]; then
-            echo "::error::Lobster font could not be located."
+          FONT_FILE="$(find /usr/share/fonts -type f -iname 'lobster*.ttf' -print -quit)"
+          if [ -z "$FONT_FILE" ] || [ ! -s "$FONT_FILE" ]; then
+            FONT_FILE="$(find /usr/share/fonts -type f -iname 'lobster*.otf' -print -quit)"
+          fi
+          if [ -z "$FONT_FILE" ] || [ ! -s "$FONT_FILE" ]; then
+            echo "::error::The Lobster font file was not found after installing fonts-lobster."
+            fc-list | grep -i lobster || true
             exit 1
           fi
+          python - "$FONT_FILE" <<'PY'
+          import sys
+          from PIL import ImageFont
+          ImageFont.truetype(sys.argv[1], 48)
+          print(f"Verified Lobster font loads in Pillow: {sys.argv[1]}")
+          PY
           echo "TYB_FONT_PATH=$FONT_FILE" >> "$GITHUB_ENV"
           ffmpeg -version | head -n 1
-          echo "Lobster font: $FONT_FILE"
+          echo "Lobster font selected: $FONT_FILE"
 
       - name: Verify repository generator and required assets are present
         run: |
@@ -204,7 +216,7 @@ jobs:
             caption_prompt="$(jq -n --arg question "$question" --arg script "$(cat "$script_file")" '{
               question:$question,
               reel_script:$script,
-              instructions:"Write one polished Instagram caption for The Yogic Belief (@yogicbelief), a thoughtful healthy-food brand. Start with an engaging opening line; add a short, accurate description tied to the question; include a natural engagement prompt; finish with 4-8 relevant hashtags. Natural Indian English, warm, clear, concise, brand-consistent. Do not mention specific menu-item names. Do not invent health or medical claims. Do not describe the Reel as AI-generated. Return only the caption, no quotation marks, headings, or explanations."
+              instructions:"Write one polished Instagram caption for The Yogic Belief (@yogicbelief), a thoughtful healthy-food brand. Start with an engaging opening line; add a short, accurate description tied to the question; include a natural engagement prompt; finish with 4-8 relevant hashtags. Natural Indian English, warm, clear, concise, brand-consistent. Do not mention specific menu-item names. Do not invent health or medical claims. Do not describe the Reel as AI-generated. Format the caption as exactly three content blocks: (1) the main caption copy, (2) the CTA as a standalone sentence/line, and (3) the 4-8 hashtags together on the final line. Separate block 1 from block 2 with exactly one blank line, and block 2 from block 3 with exactly one blank line. Do not put the CTA in the main paragraph. Do not add labels such as 'CTA' or 'Hashtags'. Return only the caption, no quotation marks, headings, or explanations."
             }')"
             response="$(curl --fail --silent --show-error --retry 2 \
               -X POST "https://api.openai.com/v1/chat/completions" \
@@ -369,7 +381,7 @@ jobs:
           echo "Persisted rotation state after successful render and saved records."
 
       - name: Publish Reel to Instagram immediately
-        if: success() && env.TYB_DEMO_MODE != 'true' && (inputs.publish == true)
+        if: success() && env.TYB_DEMO_MODE != 'true' && (github.event_name == 'schedule' || inputs.publish == true)
         shell: bash
         run: |
           set -euo pipefail
