@@ -2,16 +2,16 @@
 
 ## Production flow
 
-The production GitHub Actions workflow now runs daily at **5:30 PM IST** (`12:00 UTC`) and:
-1. Generates and renders the Reel using the existing generator.
+The production GitHub Actions workflow is currently **manual only**. The daily 5:30 PM IST schedule is intentionally disabled until the first published Reel has been reviewed and approved. A manually triggered production run can publish immediately when `demo=false` and `publish=true`. The workflow:
+1. Generates and renders the Reel using the version-controlled generator and assets in this repository (no prototype ZIP download).
 2. Generates a brand-consistent Instagram caption with the configured OpenAI model.
 3. Stores the MP4, cover and enriched script JSON in the private `tyb-reels` Storage bucket.
 4. Saves the caption and Reel metadata in `tyb_reels`.
 5. Persists the rotation state after generation succeeds.
-6. Calls the `publish-tyb-reel` Supabase Edge Function immediately.
+6. Calls the `publish-tyb-reel` Supabase Edge Function only when the manual `publish` input is true.
 7. Saves the returned Instagram media ID and permalink, with publish status/error tracking.
 
-Demo mode uses a fixed sample caption, does not create a production Reel row, and never calls the publishing function.
+Demo mode uses a fixed sample caption, does not create a production Reel row, and never calls the publishing function. The `publish` input defaults to false. Do not enable the daily schedule until the user explicitly approves the first published Reel.
 
 ## Required configuration
 
