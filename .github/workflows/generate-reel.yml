@@ -1,8 +1,6 @@
 name: Generate TYB Reel
 
 on:
-  schedule:
-    - cron: '0 12 * * *' # 5:30 PM IST daily
   workflow_dispatch:
     inputs:
       demo:
@@ -156,7 +154,7 @@ jobs:
 
       - name: Generate and render Reel
         env:
-          DEMO_MODE: ${{ github.event_name == 'schedule' && 'false' || inputs.demo }}
+          DEMO_MODE: ${{ inputs.demo }}
         run: |
           mkdir -p output
           echo "TYB_DEMO_MODE=$DEMO_MODE" >> "$GITHUB_ENV"
@@ -362,7 +360,7 @@ jobs:
           echo "Persisted rotation state after successful render and saved records."
 
       - name: Publish Reel to Instagram immediately
-        if: success() && env.TYB_DEMO_MODE != 'true' && (github.event_name == 'schedule' || inputs.publish == true)
+        if: success() && env.TYB_DEMO_MODE != 'true' && (inputs.publish == true)
         run: |
           set -euo pipefail
           payload="$(jq -n --arg job_id "$TYB_JOB_ID" '{job_id:$job_id}')"
