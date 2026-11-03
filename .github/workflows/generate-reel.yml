@@ -34,35 +34,38 @@ jobs:
       - name: Check out TYB repository
         uses: actions/checkout@v4
 
-      - name: Import the prototype from private Supabase Storage
+      - name: Prepare repository-based generator
         run: |
           set -euo pipefail
-          archive="/tmp/TYB_Reel_Generator_v1.zip"
-          if [ -f "TYB_Reel_Generator_v1.zip" ]; then
-            cp "TYB_Reel_Generator_v1.zip" "$archive"
-          else
-            if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
-              echo "::error::Upload the prototype ZIP to private Storage and configure SUPABASE_URL plus SUPABASE_SERVICE_ROLE_KEY."
-              exit 1
+          required=(
+            "generate_next_reel.py"
+            "TYB_Question_Bank_v2.xlsx"
+            "TYB_Brand_Constitution_v1.docx"
+            "assets/Template 1.1.png"
+            "assets/Template 1.2.png"
+            "assets/Template 2.1.png"
+            "assets/Template 2.2.png"
+            "assets/Template 3.1.png"
+            "assets/Template 3.2.png"
+            "assets/Template 4.1.png"
+            "assets/Template 4.2.png"
+            "assets/CTA.png"
+            "assets/BGM1.mp3"
+            "assets/BGM2.mp3"
+            "assets/BGM3.mp3"
+            "assets/BGM4.mp3"
+            "assets/BGM5.mp3"
+          )
+          missing=0
+          for file in "${required[@]}"; do
+            if [ ! -s "$file" ]; then
+              echo "::error file=$file::Required repository generator file is missing or empty."
+              missing=1
             fi
-            curl --fail --silent --show-error --retry 2 \
-              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
-              -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
-              "$SUPABASE_URL/storage/v1/object/tyb-reels/source/TYB_Reel_Generator_v1.zip" \
-              --output "$archive"
-          fi
-          python -c "import zipfile; zipfile.ZipFile('$archive').extractall('/tmp/tyb-source')"
-          root="/tmp/tyb-source/TYB_Reel_Generator_v1"
-          test -f "$root/generate_next_reel.py"
-          cp "$root/generate_next_reel.py" ./generate_next_reel.py
-          cp "$root/TYB_Question_Bank_v2.xlsx" ./TYB_Question_Bank_v2.xlsx
-          cp "$root/requirements.txt" ./requirements.txt
-          cp "$root/.env.example" ./.env.example
-          cp "$root/TYB_Brand_Constitution_v1.docx" ./TYB_Brand_Constitution_v1.docx
-          rm -rf ./assets
-          cp -a "$root/assets" ./assets
+          done
+          if [ "$missing" -ne 0 ]; then exit 1; fi
           mkdir -p output state
-          echo "Prototype source and assets imported for this run."
+          echo "Using version-controlled generator source and assets from this repository checkout."
 
       - name: Restore last successful rotation state
         run: |
