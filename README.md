@@ -13,16 +13,17 @@ Online generator and Instagram performance-learning infrastructure for The Yogic
 
 - Supabase core schema deployed and verified; the generation workflow is wired to create job rows, store output objects privately, save Reel metadata, and update job status.
 - RLS enabled on all five TYB tables; direct anon/authenticated table access is revoked.
-- Private storage bucket created, with support for the supplied ZIP.
+- Private storage bucket `tyb-reels` stores generated media and persistent rotation state.
 - Manual GitHub Actions workflows committed for Reel generation and TYB Edge Function deployment.
 - Supabase Edge Function `fetch-tyb-reel-insights` deployed and successfully tested with the TYB Instagram System User token.
 - Supabase Edge Function `publish-tyb-reel` deployed with JWT verification. Production generation now creates a brand-consistent caption, saves it with the Reel metadata, and invokes publishing immediately; demo mode never publishes.
 - Automatic publishing state is tracked on `tyb_reels` using `publish_status`, `publish_error`, and `instagram_container_id`.
-- The generator workflow downloads the prototype ZIP from private Supabase Storage at runtime, restores the previous successful rotation state, stores the MP4/cover/script in private Storage, writes job and Reel records, and persists updated state only after a successful render and artifact upload. Demo runs are marked `needs_review` and do not consume rotation state. The 39 MB asset bundle does not need to be committed into Git.
+- The one-time generator migration completed successfully: generator Python source, the 110-question workbook, brand constitution, eight visual templates, CTA graphic, and five background tracks are now version-controlled in this repository. The production workflow uses these files directly and no longer downloads or extracts the prototype ZIP.
+- The generation workflow restores rotation state from private Supabase Storage, stores generated MP4/cover/script files there, writes job and Reel records, and persists updated state after successful production generation. Demo runs do not consume rotation state.
 
 ## First generation milestone
 
-The manually triggered workflow is intended to select an approved question, generate and validate a customer–chef script, render a 1080 × 1920 MP4, and provide the MP4, cover, script, and state as a downloadable workflow artifact. This first milestone does not publish to Instagram.
+The workflow is manually triggered. Set `demo=false` for a real AI-generated script and `publish=true` to publish immediately to Instagram after successful generation. `publish` defaults to false. The generated MP4, cover, script, and state are also provided as a downloadable workflow artifact.
 
 ## Brand and sequence invariants
 
@@ -43,4 +44,4 @@ The project-creation quote was $0/month for the project itself. GitHub Actions, 
 
 ## Publishing
 
-See [docs/PUBLISHING.md](docs/PUBLISHING.md) for the automatic publishing flow, required configuration, optional collaborator invitations, and the current Instagram Story / WhatsApp Status limitations.
+See [docs/PUBLISHING.md](docs/PUBLISHING.md) for the publishing flow, required configuration, optional collaborator invitations, and Story publishing limitations.
