@@ -303,7 +303,7 @@ jobs:
             --argjson music_index "$music_index" \
             --argjson cta_index "$cta_index" \
             --argjson duration "$duration" \
-            '{job_id:$job_id,question_id:$question_id,approved_question:$question,caption:$caption,template_pair:$template_pair,music_index:$music_index,cta_index:$cta_index,duration_seconds:$duration}')
+            '{job_id:$job_id,question_id:$question_id,approved_question:$question,caption:$caption,template_pair:$template_pair,music_index:$music_index,cta_index:$cta_index,duration_seconds:$duration}')"
           job_status="succeeded"
           if [ "$TYB_DEMO_MODE" != "true" ]; then
             curl --fail --silent --show-error \
