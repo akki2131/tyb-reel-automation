@@ -2,7 +2,7 @@ name: Generate TYB Reel
 
 on:
   schedule:
-    - cron: '0 12 * * *' # 5:30 PM India Standard Time (UTC+5:30)
+    - cron: '7 12 * * *' # 5:37 PM India Standard Time (UTC+5:30)
   workflow_dispatch:
     inputs:
       demo:
