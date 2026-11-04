@@ -307,7 +307,7 @@ def render(script, question, state):
     output_path = OUTPUT / f"{slug}.mp4"
     cover_path = OUTPUT / f"{slug}_cover.jpg"
     # Static cover always uses Template 1.1, independent of the rotating scene pair.
-    cover_template = Image.open(ASSETS / "Template 1.1.png").convert("RGB")
+    cover_template = customer_template.copy()  # Keep the cover aligned with the selected rotating template pair.
     draw_centered_text(cover_template, script["hook"], HOOK_ZONE, font_size=62)
     cover_template.save(cover_path, quality=95, optimize=True)
     cmd = [
