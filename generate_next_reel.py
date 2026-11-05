@@ -194,8 +194,12 @@ def validate_script(script, question):
         raise ValueError("Script must contain 5–8 scenes.")
     if any(not isinstance(scene, dict) for scene in scenes):
         raise ValueError("Every scene must be a JSON object with role and text.")
-    if str(scenes[0].get("role", "")).lower() != "customer" or str(scenes[0].get("text", "")).strip() != question["question"]:
-        raise ValueError("First scene must be the approved customer question.")
+    if str(scenes[0].get("role", "")).lower().strip() != "customer":
+        raise ValueError("First scene must be spoken by the customer.")
+    # The approved hook is already validated above. Preserve the model's dialogue,
+    # but canonicalize the opening scene to the exact approved question so minor
+    # punctuation/wording drift cannot trigger an unnecessary AI repair.
+    scenes[0]["text"] = question["question"]
     if str(scenes[-1].get("role", "")).lower() != "chef":
         raise ValueError("Final dialogue scene must be the chef's conclusion.")
     for i, scene in enumerate(scenes):
