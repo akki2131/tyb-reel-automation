@@ -15,6 +15,11 @@ on:
         type: boolean
         required: true
         default: false
+      run_date:
+        description: "IST publication date for watchdog recovery (YYYY-MM-DD; normally leave blank)"
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -24,7 +29,65 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  daily-guard:
+    runs-on: ubuntu-latest
+    outputs:
+      proceed: ${{ steps.claim.outputs.proceed }}
+      run_date: ${{ steps.claim.outputs.run_date }}
+      guarded: ${{ steps.claim.outputs.guarded }}
+    env:
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      DEMO_MODE: ${{ inputs.demo }}
+      PUBLISH_INPUT: ${{ inputs.publish }}
+      REQUESTED_RUN_DATE: ${{ inputs.run_date }}
+    steps:
+      - name: Claim the one-publication-per-day slot
+        id: claim
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && ( "$DEMO_MODE" == "true" || "$PUBLISH_INPUT" != "true" ) ]]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            echo "run_date=" >> "$GITHUB_OUTPUT"
+            echo "guarded=false" >> "$GITHUB_OUTPUT"
+            echo "Demo or non-publishing manual run: daily publication guard is not claimed."
+            exit 0
+          fi
+          if [[ -n "$REQUESTED_RUN_DATE" ]]; then
+            if [[ ! "$REQUESTED_RUN_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+              echo "::error::run_date must use YYYY-MM-DD."
+              exit 1
+            fi
+            target_date="$REQUESTED_RUN_DATE"
+          else
+            local_clock="$(TZ=Asia/Kolkata date +%H%M)"
+            if [[ "$GITHUB_EVENT_NAME" == "schedule" && "$local_clock" -lt "0537" ]]; then
+              target_date="$(TZ=Asia/Kolkata date -d 'yesterday' +%F)"
+            else
+              target_date="$(TZ=Asia/Kolkata date +%F)"
+            fi
+          fi
+          payload="$(jq -n --arg date "$target_date" --arg run_id "$GITHUB_RUN_ID" --arg source "$GITHUB_EVENT_NAME" '{p_run_date:$date,p_github_run_id:$run_id,p_trigger_source:$source}')"
+          response="$(curl --fail --silent --show-error -X POST \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            --data "$payload" \
+            "$SUPABASE_URL/rest/v1/rpc/claim_tyb_daily_run")"
+          proceed="$(printf '%s' "$response" | jq -r '.should_run // false')"
+          reason="$(printf '%s' "$response" | jq -r '.reason // "unknown"')"
+          echo "proceed=$proceed" >> "$GITHUB_OUTPUT"
+          echo "run_date=$target_date" >> "$GITHUB_OUTPUT"
+          echo "guarded=true" >> "$GITHUB_OUTPUT"
+          echo "Daily publication guard: $reason (date $target_date)."
+          if [[ "$proceed" != "true" ]]; then
+            echo "A Reel is already published or another run owns today's slot. This run will safely exit."
+          fi
+
   generate:
+    needs: daily-guard
+    if: needs.daily-guard.outputs.proceed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -32,6 +95,8 @@ jobs:
       OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-4.1-mini' }}
       SUPABASE_URL: ${{ vars.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TYB_RUN_DATE: ${{ needs.daily-guard.outputs.run_date }}
+      TYB_DAILY_GUARD: ${{ needs.daily-guard.outputs.guarded }}
     steps:
       - name: Check out TYB repository
         uses: actions/checkout@v4
@@ -354,14 +419,26 @@ jobs:
         run: |
           failed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           payload="$(jq -n --arg failed_at "$failed_at" '{status:"failed",error_code:"workflow_failed",error_message:"A workflow step failed; inspect GitHub Actions logs.",completed_at:$failed_at}')"
-          curl --silent --show-error \
-            -X PATCH \
-            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
-            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
-            -H "Content-Type: application/json" \
-            -H "Prefer: return=minimal" \
-            --data "$payload" \
-            "$SUPABASE_URL/rest/v1/tyb_reel_jobs?id=eq.$TYB_JOB_ID" || true
+          if [ -n "${TYB_JOB_ID:-}" ]; then
+            curl --silent --show-error \
+              -X PATCH \
+              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Content-Type: application/json" \
+              -H "Prefer: return=minimal" \
+              --data "$payload" \
+              "$SUPABASE_URL/rest/v1/tyb_reel_jobs?id=eq.$TYB_JOB_ID" || true
+          fi
+          if [ "${TYB_DAILY_GUARD:-false}" = "true" ] && [ -n "${TYB_RUN_DATE:-}" ]; then
+            failed_payload="$(jq -n --arg date "$TYB_RUN_DATE" '{p_run_date:$date}')"
+            curl --silent --show-error \
+              -X POST \
+              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Content-Type: application/json" \
+              --data "$failed_payload" \
+              "$SUPABASE_URL/rest/v1/rpc/mark_tyb_daily_failed" || true
+          fi
 
       - name: Persist rotation state after successful render and saved records
         if: success() && env.TYB_DEMO_MODE != 'true'
@@ -405,3 +482,18 @@ jobs:
           fi
           jq . /tmp/tyb-publish-response.json
           echo "Instagram Reel published successfully."
+
+      - name: Mark daily publication slot as published
+        if: success() && env.TYB_DAILY_GUARD == 'true' && (github.event_name == 'schedule' || inputs.publish == true)
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload="$(jq -n --arg date "$TYB_RUN_DATE" --arg job_id "$TYB_JOB_ID" '{p_run_date:$date,p_job_id:$job_id}')"
+          curl --fail --silent --show-error \
+            -X POST \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            --data "$payload" \
+            "$SUPABASE_URL/rest/v1/rpc/mark_tyb_daily_published"
+          echo "Daily publication slot marked published for $TYB_RUN_DATE."
