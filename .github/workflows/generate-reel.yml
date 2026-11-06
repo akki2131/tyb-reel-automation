@@ -414,8 +414,8 @@ jobs:
             "$SUPABASE_URL/rest/v1/tyb_reel_jobs?id=eq.$TYB_JOB_ID"
           echo "Saved Reel metadata and marked job succeeded."
 
-      - name: Mark job failed when any prior step fails
-        if: failure() && env.TYB_JOB_ID != ''
+      - name: Mark job and daily slot failed when any prior step fails
+        if: failure()
         run: |
           failed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           payload="$(jq -n --arg failed_at "$failed_at" '{status:"failed",error_code:"workflow_failed",error_message:"A workflow step failed; inspect GitHub Actions logs.",completed_at:$failed_at}')"
