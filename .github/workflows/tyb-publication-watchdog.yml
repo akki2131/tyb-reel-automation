@@ -2,7 +2,8 @@ name: TYB Daily Publication Watchdog
 
 on:
   schedule:
-    - cron: '*/10 12-18 * * *'
+    - cron: '*/10 12-17 * * *'
+    - cron: '0,10,20,30 18 * * *'
   workflow_dispatch:
 
 permissions:
