@@ -260,14 +260,16 @@ def draw_centered_text(img, text, zone, font_size=58):
     return img
 
 def duration_for(text, is_hook=False):
-    # Reveal the complete dialogue, then hold it for exactly 0.8 seconds.
-    reveal_seconds = max(len(text) * 0.045, 0.8)
-    return reveal_seconds + 0.8
-
-def make_scene(template, text, duration, start_frame, frames_dir, zone=HOOK_ZONE):
-    total_frames = max(1, round(duration * FPS))
+    # Quantize the reveal to whole frames, then add exactly 0.8 seconds of hold.
     reveal_seconds = max(len(text) * 0.045, 0.8)
     reveal_frames = max(1, round(reveal_seconds * FPS))
+    return reveal_frames / FPS + 0.8
+
+def make_scene(template, text, duration, start_frame, frames_dir, zone=HOOK_ZONE):
+    reveal_seconds = max(len(text) * 0.045, 0.8)
+    reveal_frames = max(1, round(reveal_seconds * FPS))
+    hold_frames = round(0.8 * FPS)
+    total_frames = reveal_frames + hold_frames
     for j in range(total_frames):
         img = template.copy()
         chars = min(len(text), round(len(text) * j / max(1, reveal_frames-1))) if j < reveal_frames else len(text)
