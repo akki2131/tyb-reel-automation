@@ -153,7 +153,11 @@ def repair_ai_script(question, previous_script, error_message):
         "messages": [
             {"role": "system", "content": BRAND_RULES},
             {"role": "user", "content": (
-                f"Repair this script so it passes the validation error below. Keep the approved question exact. "
+                f"Rewrite the ENTIRE script to correct the validation error below. Do not merely edit or shorten it. "
+                f"Return exactly 5 to 8 scenes (inclusive), each with a non-empty text and role 'customer' or 'chef'. "
+                f"The FIRST scene must be role 'customer' and its text must exactly match the approved question. "
+                f"The LAST scene must be role 'chef' and give a natural concluding takeaway. "
+                f"Keep every scene to 28 words or fewer. Preserve the useful ideas from the previous script where possible. "
                 f"Return JSON only in the required shape.\nValidation error: {error_message}\n"
                 f"Question ID: {question['id']}\nApproved question: {question['question']}\n"
                 f"Previous JSON: {json.dumps(previous_script, ensure_ascii=False)}"
@@ -194,11 +198,10 @@ def validate_script(script, question):
         raise ValueError("Script must contain 5–8 scenes.")
     if any(not isinstance(scene, dict) for scene in scenes):
         raise ValueError("Every scene must be a JSON object with role and text.")
-    if str(scenes[0].get("role", "")).lower().strip() != "customer":
-        raise ValueError("First scene must be spoken by the customer.")
-    # The approved hook is already validated above. Preserve the model's dialogue,
-    # but canonicalize the opening scene to the exact approved question so minor
-    # punctuation/wording drift cannot trigger an unnecessary AI repair.
+    # The approved opening question is always the customer's line. Canonicalize
+    # its role and exact wording deterministically instead of spending an AI repair
+    # call on a structural detail that can be corrected without changing meaning.
+    scenes[0]["role"] = "customer"
     scenes[0]["text"] = question["question"]
     if str(scenes[-1].get("role", "")).lower() != "chef":
         raise ValueError("Final dialogue scene must be the chef's conclusion.")
