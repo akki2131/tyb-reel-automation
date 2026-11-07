@@ -29,8 +29,8 @@ CTA_TEXTS = [
 ]
 TEMPLATE_PAIRS = [
     ("Template 1.1.png", "Template 1.2.png"),
-    ("Template 2.1.png", "Template 2.2.png"),
     ("Template 3.1.png", "Template 3.2.png"),
+    ("Template 2.1.png", "Template 2.2.png"),
     ("Template 4.1.png", "Template 4.2.png"),
 ]
 BGM_FILES = [f"BGM{i}.mp3" for i in range(1, 6)]
@@ -260,13 +260,13 @@ def draw_centered_text(img, text, zone, font_size=58):
     return img
 
 def duration_for(text, is_hook=False):
-    # Comfortable reading speed for text-only Reels, with modest pauses.
-    words = len(text.split())
-    return max(3.0 if is_hook else 3.2, min(7.0, words / 2.3 + 1.6))
+    # Reveal the complete dialogue, then hold it for exactly 0.8 seconds.
+    reveal_seconds = max(len(text) * 0.045, 0.8)
+    return reveal_seconds + 0.8
 
 def make_scene(template, text, duration, start_frame, frames_dir, zone=HOOK_ZONE):
     total_frames = max(1, round(duration * FPS))
-    reveal_seconds = min(max(len(text) * 0.045, 0.8), duration * 0.70)
+    reveal_seconds = max(len(text) * 0.045, 0.8)
     reveal_frames = max(1, round(reveal_seconds * FPS))
     for j in range(total_frames):
         img = template.copy()
