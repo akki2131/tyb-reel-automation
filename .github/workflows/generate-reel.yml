@@ -2,7 +2,7 @@ name: Generate TYB Reel
 
 on:
   schedule:
-    - cron: '7 12 * * *' # 5:37 PM India Standard Time (UTC+5:30)
+    - cron: '39 11 * * *' # 5:09 PM India Standard Time (UTC+5:30)
   workflow_dispatch:
     inputs:
       demo:
@@ -89,7 +89,7 @@ jobs:
     needs: daily-guard
     if: needs.daily-guard.outputs.proceed == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-4.1-mini' }}
@@ -456,6 +456,21 @@ jobs:
             --data-binary @state/state.json \
             "$SUPABASE_URL/storage/v1/object/tyb-reels/state/state.json"
           echo "Persisted rotation state after successful render and saved records."
+
+      - name: Wait until 5:34 PM IST publication time
+        if: success() && env.TYB_DEMO_MODE != 'true' && (github.event_name == 'schedule' || inputs.publish == true)
+        shell: bash
+        run: |
+          set -euo pipefail
+          target_epoch="$(TZ=Asia/Kolkata date -d "$(TZ=Asia/Kolkata date +%F) 17:34:00" +%s)"
+          now_epoch="$(date +%s)"
+          if (( now_epoch < target_epoch )); then
+            wait_seconds="$((target_epoch - now_epoch))"
+            echo "Reel is ready. Waiting $wait_seconds seconds for the 5:34 PM IST publication slot."
+            sleep "$wait_seconds"
+          else
+            echo "The 5:34 PM IST slot has passed (for example, a delayed run or watchdog recovery); publishing immediately rather than waiting until tomorrow."
+          fi
 
       - name: Publish Reel to Instagram immediately
         if: success() && env.TYB_DEMO_MODE != 'true' && (github.event_name == 'schedule' || inputs.publish == true)
