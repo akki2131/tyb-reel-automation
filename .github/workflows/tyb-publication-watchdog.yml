@@ -34,6 +34,12 @@ jobs:
             exit 0
           fi
 
+          # After 6:00 PM IST, defer any queued Reel to the next day's slot.
+          if [[ "$local_clock" -gt "1800" ]]; then
+            echo "Today's 30-minute grace period has ended. No same-day recovery or late publication."
+            exit 0
+          fi
+
           # Drain the oldest already-generated Reel first. Never generate a second Reel
           # while an older one is waiting for its publication slot.
           pending="$(curl --fail --silent --show-error --get \
@@ -64,12 +70,6 @@ jobs:
               exit 1
             fi
             echo "Dispatched oldest queued Reel job $pending_job_id for today's 5:30 PM IST slot."
-            exit 0
-          fi
-
-          # After 6:00 PM IST, never start a new generation run for today's slot.
-          if [[ "$local_clock" -gt "1800" ]]; then
-            echo "Today's 30-minute grace period has ended and no queued Reel exists. No late publication."
             exit 0
           fi
 
