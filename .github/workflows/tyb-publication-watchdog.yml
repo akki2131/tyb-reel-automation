@@ -56,6 +56,31 @@ jobs:
             exit 0
           fi
 
+          rows="$(curl --fail --silent --show-error --get \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            --data-urlencode "select=status,claimed_at" \
+            --data-urlencode "run_date=eq.$today" \
+            "$SUPABASE_URL/rest/v1/tyb_daily_runs")"
+          status="$(printf '%s' "$rows" | jq -r '.[0].status // "missing"')"
+          claimed_at="$(printf '%s' "$rows" | jq -r '.[0].claimed_at // empty')"
+
+          if [[ "$status" == "published" ]]; then
+            echo "Daily guard already confirms publication for $today."
+            exit 0
+          fi
+          if [[ "$status" == "claimed" && -n "$claimed_at" ]]; then
+            claimed_epoch="$(date -u -d "$claimed_at" +%s)"
+            now_epoch="$(date -u +%s)"
+            age_minutes="$(( (now_epoch - claimed_epoch) / 60 ))"
+            if [[ "$age_minutes" -lt 30 ]]; then
+              echo "A generation run claimed today's slot ${age_minutes} minutes ago; allowing it to finish."
+              exit 0
+            fi
+            echo "Daily claim is stale (${age_minutes} minutes); attempting safe recovery."
+          else
+            echo "No completed publication or active daily claim found (status: $status); attempting recovery."
+
           # Drain the oldest already-generated Reel first. Never generate a second Reel
           # while an older one is waiting for its publication slot.
           pending="$(curl --fail --silent --show-error --get \
@@ -89,30 +114,6 @@ jobs:
             exit 0
           fi
 
-          rows="$(curl --fail --silent --show-error --get \
-            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
-            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
-            --data-urlencode "select=status,claimed_at" \
-            --data-urlencode "run_date=eq.$today" \
-            "$SUPABASE_URL/rest/v1/tyb_daily_runs")"
-          status="$(printf '%s' "$rows" | jq -r '.[0].status // "missing"')"
-          claimed_at="$(printf '%s' "$rows" | jq -r '.[0].claimed_at // empty')"
-
-          if [[ "$status" == "published" ]]; then
-            echo "Daily guard already confirms publication for $today."
-            exit 0
-          fi
-          if [[ "$status" == "claimed" && -n "$claimed_at" ]]; then
-            claimed_epoch="$(date -u -d "$claimed_at" +%s)"
-            now_epoch="$(date -u +%s)"
-            age_minutes="$(( (now_epoch - claimed_epoch) / 60 ))"
-            if [[ "$age_minutes" -lt 30 ]]; then
-              echo "A generation run claimed today's slot ${age_minutes} minutes ago; allowing it to finish."
-              exit 0
-            fi
-            echo "Daily claim is stale (${age_minutes} minutes); attempting safe recovery."
-          else
-            echo "No completed publication or active daily claim found (status: $status); attempting recovery."
           fi
 
           payload="$(jq -n --arg date "$today" '{ref:"main",inputs:{demo:"false",publish:"true",run_date:$date}}')"
