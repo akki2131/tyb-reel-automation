@@ -518,7 +518,7 @@ jobs:
           fi
 
       - name: Mark daily publication slot as published
-        if: success() && env.TYB_DAILY_GUARD == 'true' && (github.event_name == 'schedule' || inputs.publish == true)
+        if: success() && env.TYB_SKIP_PUBLICATION != 'true' && env.TYB_DAILY_GUARD == 'true' && (github.event_name == 'schedule' || inputs.publish == true)
         shell: bash
         run: |
           set -euo pipefail
