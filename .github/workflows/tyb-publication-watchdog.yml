@@ -40,6 +40,22 @@ jobs:
             exit 0
           fi
 
+          # The actual published Reel record is authoritative, even if the follow-up
+          # update to the daily guard was interrupted.
+          tomorrow="$(TZ=Asia/Kolkata date -d "$today + 1 day" +%F)"
+          published="$(curl --fail --silent --show-error --get \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            --data-urlencode "select=id,job_id,published_at" \
+            --data-urlencode "publish_status=eq.published" \
+            --data-urlencode "published_at=gte.$today 00:00:00+05:30" \
+            --data-urlencode "published_at=lt.$tomorrow 00:00:00+05:30" \
+            "$SUPABASE_URL/rest/v1/tyb_reels")"
+          if [[ "$(printf '%s' "$published" | jq 'length')" -gt 0 ]]; then
+            echo "A Reel is already published for $today (IST). No recovery dispatch."
+            exit 0
+          fi
+
           # Drain the oldest already-generated Reel first. Never generate a second Reel
           # while an older one is waiting for its publication slot.
           pending="$(curl --fail --silent --show-error --get \
@@ -70,22 +86,6 @@ jobs:
               exit 1
             fi
             echo "Dispatched oldest queued Reel job $pending_job_id for today's 5:30 PM IST slot."
-            exit 0
-          fi
-
-          # The actual published Reel record is authoritative, even if the follow-up
-          # update to the daily guard was interrupted.
-          tomorrow="$(TZ=Asia/Kolkata date -d "$today + 1 day" +%F)"
-          published="$(curl --fail --silent --show-error --get \
-            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
-            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
-            --data-urlencode "select=id,job_id,published_at" \
-            --data-urlencode "publish_status=eq.published" \
-            --data-urlencode "published_at=gte.$today 00:00:00+05:30" \
-            --data-urlencode "published_at=lt.$tomorrow 00:00:00+05:30" \
-            "$SUPABASE_URL/rest/v1/tyb_reels")"
-          if [[ "$(printf '%s' "$published" | jq 'length')" -gt 0 ]]; then
-            echo "A Reel is already published for $today (IST). No recovery dispatch."
             exit 0
           fi
 
