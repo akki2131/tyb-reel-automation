@@ -29,8 +29,47 @@ jobs:
           set -euo pipefail
           today="$(TZ=Asia/Kolkata date +%F)"
           local_clock="$(TZ=Asia/Kolkata date +%H%M)"
-          if [[ "$local_clock" -lt "1750" ]]; then
-            echo "Before the 5:50 PM IST grace period; no recovery action is due."
+          if [[ "$local_clock" -lt "1730" ]]; then
+            echo "Before the 5:30 PM IST publication slot; no recovery action is due."
+            exit 0
+          fi
+
+          # Drain the oldest already-generated Reel first. Never generate a second Reel
+          # while an older one is waiting for its publication slot.
+          pending="$(curl --fail --silent --show-error --get \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            --data-urlencode "select=job_id,created_at" \
+            --data-urlencode "publish_status=eq.not_published" \
+            --data-urlencode "job_id=not.is.null" \
+            --data-urlencode "order=created_at.asc" \
+            --data-urlencode "limit=1" \
+            "$SUPABASE_URL/rest/v1/tyb_reels")"
+          pending_job_id="$(printf '%s' "$pending" | jq -r '.[0].job_id // empty')"
+          if [[ -n "$pending_job_id" ]]; then
+            payload="$(jq -n --arg date "$today" --arg job_id "$pending_job_id" '{ref:"main",inputs:{demo:"false",publish:"false",run_date:$date,publish_job_id:$job_id}}')"
+            http_code="$(curl --silent --show-error \
+              -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              -H "Content-Type: application/json" \
+              -o /tmp/dispatch-response.txt \
+              -w "%{http_code}" \
+              --data "$payload" \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/generate-reel.yml/dispatches")"
+            if [[ "$http_code" != "204" ]]; then
+              echo "::error::Queued Reel publisher dispatch failed (HTTP $http_code)."
+              cat /tmp/dispatch-response.txt
+              exit 1
+            fi
+            echo "Dispatched oldest queued Reel job $pending_job_id for today's 5:30 PM IST slot."
+            exit 0
+          fi
+
+          # After 6:00 PM IST, never start a new generation run for today's slot.
+          if [[ "$local_clock" -gt "1800" ]]; then
+            echo "Today's 30-minute grace period has ended and no queued Reel exists. No late publication."
             exit 0
           fi
 
