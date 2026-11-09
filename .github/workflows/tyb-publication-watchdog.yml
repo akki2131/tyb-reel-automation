@@ -47,7 +47,7 @@ jobs:
             "$SUPABASE_URL/rest/v1/tyb_reels")"
           pending_job_id="$(printf '%s' "$pending" | jq -r '.[0].job_id // empty')"
           if [[ -n "$pending_job_id" ]]; then
-            payload="$(jq -n --arg date "$today" --arg job_id "$pending_job_id" '{ref:"main",inputs:{demo:"false",publish:"false",run_date:$date,publish_job_id:$job_id}}')"
+            payload="$(jq -n --arg date "$today" --arg job_id "$pending_job_id" '{ref:"main",inputs:{demo:"false",publish:"true",run_date:$date,publish_job_id:$job_id}}')"
             http_code="$(curl --silent --show-error \
               -X POST \
               -H "Accept: application/vnd.github+json" \
