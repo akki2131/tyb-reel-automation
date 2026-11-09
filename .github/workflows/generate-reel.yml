@@ -557,10 +557,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      SUPABASE_URL: \${{ vars.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: \${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      TYB_RUN_DATE: \${{ needs.daily-guard.outputs.run_date }}
-      TYB_JOB_ID: \${{ inputs.publish_job_id }}
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TYB_RUN_DATE: ${{ needs.daily-guard.outputs.run_date }}
+      TYB_JOB_ID: ${{ inputs.publish_job_id }}
     steps:
       - name: Verify queued Reel
         shell: bash
@@ -575,7 +575,7 @@ jobs:
             "$SUPABASE_URL/rest/v1/tyb_reels")"
           status="$(printf '%s' "$rows" | jq -r '.[0].publish_status // empty')"
           if [[ "$status" != "not_published" ]]; then
-            echo "::error::Job is not queued (status: \${status:-missing})."
+            echo "::error::Job is not queued (status: ${status:-missing})."
             exit 1
           fi
 
