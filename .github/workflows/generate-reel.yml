@@ -46,6 +46,7 @@ jobs:
       DEMO_MODE: ${{ inputs.demo }}
       PUBLISH_INPUT: ${{ inputs.publish }}
       REQUESTED_RUN_DATE: ${{ inputs.run_date }}
+      PUBLISH_JOB_ID: ${{ inputs.publish_job_id }}
     steps:
       - name: Claim the one-publication-per-day slot
         id: claim
@@ -71,6 +72,24 @@ jobs:
               target_date="$(TZ=Asia/Kolkata date -d 'yesterday' +%F)"
             else
               target_date="$(TZ=Asia/Kolkata date +%F)"
+            fi
+          fi
+          if [[ -z "$PUBLISH_JOB_ID" && "$GITHUB_EVENT_NAME" == "schedule" ]]; then
+            pending="$(curl --fail --silent --show-error --get \
+              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+              --data-urlencode "select=job_id,created_at" \
+              --data-urlencode "publish_status=eq.not_published" \
+              --data-urlencode "job_id=not.is.null" \
+              --data-urlencode "order=created_at.asc" \
+              --data-urlencode "limit=1" \
+              "$SUPABASE_URL/rest/v1/tyb_reels")"
+            if [[ "$(printf '%s' "$pending" | jq 'length')" -gt 0 ]]; then
+              echo "An older generated Reel is queued; skipping today's generation to prevent backlog growth."
+              echo "proceed=false" >> "$GITHUB_OUTPUT"
+              echo "run_date=$target_date" >> "$GITHUB_OUTPUT"
+              echo "guarded=false" >> "$GITHUB_OUTPUT"
+              exit 0
             fi
           fi
           payload="$(jq -n --arg date "$target_date" --arg run_id "$GITHUB_RUN_ID" --arg source "$GITHUB_EVENT_NAME" '{p_run_date:$date,p_github_run_id:$run_id,p_trigger_source:$source}')"
