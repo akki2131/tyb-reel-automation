@@ -500,7 +500,10 @@ jobs:
             wait_seconds="$((target_epoch - now_epoch))"
             echo "Waiting $wait_seconds seconds for the 5:30 PM IST publication slot."
             sleep "$wait_seconds"
-          elif (( now_epoch <= grace_end_epoch )); then
+          fi
+          # Re-check after waiting; runner delays must never push publication past 6 PM.
+          now_epoch="$(date +%s)"
+          if (( now_epoch <= grace_end_epoch )); then
             echo "Within the 30-minute grace period. Publishing now."
           else
             echo "Grace period ended at 6:00 PM IST. Reel remains queued for the next day's slot."
@@ -579,7 +582,25 @@ jobs:
             exit 1
           fi
 
+      - name: Enforce 6 PM cutoff for queued Reel
+        shell: bash
+        run: |
+          set -euo pipefail
+          now_clock="$(TZ=Asia/Kolkata date +%H%M)"
+          if [[ "$now_clock" -gt "1800" ]]; then
+            echo "Grace deadline has passed; defer queued Reel to the next day."
+            echo "TYB_SKIP_PUBLICATION=true" >> "$GITHUB_ENV"
+            payload="$(jq -n --arg date "$TYB_RUN_DATE" '{p_run_date:$date}')"
+            curl --fail --silent --show-error -X POST \
+              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Content-Type: application/json" \
+              --data "$payload" \
+              "$SUPABASE_URL/rest/v1/rpc/mark_tyb_daily_failed"
+          fi
+
       - name: Publish queued Reel
+        if: env.TYB_SKIP_PUBLICATION != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -596,6 +617,7 @@ jobs:
           jq -e '.ok == true and .published == true' /tmp/tyb-publish-response.json >/dev/null
 
       - name: Mark today's slot published
+        if: env.TYB_SKIP_PUBLICATION != 'true'
         shell: bash
         run: |
           set -euo pipefail
