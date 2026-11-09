@@ -586,8 +586,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          now_clock="$(TZ=Asia/Kolkata date +%H%M)"
-          if [[ "$now_clock" -gt "1800" ]]; then
+          grace_end_epoch="$(TZ=Asia/Kolkata date -d "$TYB_RUN_DATE 18:00:00" +%s)"
+          now_epoch="$(date +%s)"
+          if (( now_epoch > grace_end_epoch )); then
             echo "Grace deadline has passed; defer queued Reel to the next day."
             echo "TYB_SKIP_PUBLICATION=true" >> "$GITHUB_ENV"
             payload="$(jq -n --arg date "$TYB_RUN_DATE" '{p_run_date:$date}')"
