@@ -20,6 +20,11 @@ on:
         type: string
         required: false
         default: ""
+      publish_job_id:
+        description: "Publish an existing queued Reel job instead of generating a new Reel"
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -87,9 +92,9 @@ jobs:
 
   generate:
     needs: daily-guard
-    if: needs.daily-guard.outputs.proceed == 'true'
+    if: needs.daily-guard.outputs.proceed == 'true' && inputs.publish_job_id == ''
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-4.1-mini' }}
@@ -457,23 +462,41 @@ jobs:
             "$SUPABASE_URL/storage/v1/object/tyb-reels/state/state.json"
           echo "Persisted rotation state after successful render and saved records."
 
-      - name: Wait until 5:34 PM IST publication time
+      - name: Enforce 5:30 PM IST target and 30-minute grace window
         if: success() && env.TYB_DEMO_MODE != 'true' && (github.event_name == 'schedule' || inputs.publish == true)
         shell: bash
         run: |
           set -euo pipefail
-          target_epoch="$(TZ=Asia/Kolkata date -d "$(TZ=Asia/Kolkata date +%F) 17:34:00" +%s)"
+          target_date="$TYB_RUN_DATE"
+          if [[ -z "$target_date" ]]; then target_date="$(TZ=Asia/Kolkata date +%F)"; fi
+          today="$(TZ=Asia/Kolkata date +%F)"
+          if [[ "$target_date" != "$today" ]]; then
+            echo "::error::Generation run date does not match today's IST date."
+            exit 1
+          fi
+          target_epoch="$(TZ=Asia/Kolkata date -d "$target_date 17:30:00" +%s)"
+          grace_end_epoch="$(TZ=Asia/Kolkata date -d "$target_date 18:00:00" +%s)"
           now_epoch="$(date +%s)"
           if (( now_epoch < target_epoch )); then
             wait_seconds="$((target_epoch - now_epoch))"
-            echo "Reel is ready. Waiting $wait_seconds seconds for the 5:34 PM IST publication slot."
+            echo "Waiting $wait_seconds seconds for the 5:30 PM IST publication slot."
             sleep "$wait_seconds"
+          elif (( now_epoch <= grace_end_epoch )); then
+            echo "Within the 30-minute grace period. Publishing now."
           else
-            echo "The 5:34 PM IST slot has passed (for example, a delayed run or watchdog recovery); publishing immediately rather than waiting until tomorrow."
+            echo "Grace period ended at 6:00 PM IST. Reel remains queued for the next day's slot."
+            echo "TYB_SKIP_PUBLICATION=true" >> "$GITHUB_ENV"
+            failed_payload="$(jq -n --arg date "$TYB_RUN_DATE" '{p_run_date:$date}')"
+            curl --fail --silent --show-error -X POST \
+              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Content-Type: application/json" \
+              --data "$failed_payload" \
+              "$SUPABASE_URL/rest/v1/rpc/mark_tyb_daily_failed"
           fi
 
-      - name: Publish Reel to Instagram immediately
-        if: success() && env.TYB_DEMO_MODE != 'true' && (github.event_name == 'schedule' || inputs.publish == true)
+      - name: Publish Reel to Instagram
+        if: success() && env.TYB_DEMO_MODE != 'true' && env.TYB_SKIP_PUBLICATION != 'true' && (github.event_name == 'schedule' || inputs.publish == true)
         shell: bash
         run: |
           set -euo pipefail
@@ -488,15 +511,11 @@ jobs:
             -w "%{http_code}" \
             "$SUPABASE_URL/functions/v1/publish-tyb-reel")"
           echo "Publishing function HTTP status: $http_code"
-          echo "Publishing function response:"
           cat /tmp/tyb-publish-response.json
-          echo
           if ! jq -e '.ok == true and .published == true' /tmp/tyb-publish-response.json >/dev/null 2>&1; then
-            echo "::error::Instagram publishing function did not confirm success (HTTP $http_code)."
+            echo "::error::Instagram publishing function did not confirm success."
             exit 1
           fi
-          jq . /tmp/tyb-publish-response.json
-          echo "Instagram Reel published successfully."
 
       - name: Mark daily publication slot as published
         if: success() && env.TYB_DAILY_GUARD == 'true' && (github.event_name == 'schedule' || inputs.publish == true)
@@ -512,3 +531,59 @@ jobs:
             --data "$payload" \
             "$SUPABASE_URL/rest/v1/rpc/mark_tyb_daily_published"
           echo "Daily publication slot marked published for $TYB_RUN_DATE."
+
+  publish-existing:
+    needs: daily-guard
+    if: needs.daily-guard.outputs.proceed == 'true' && inputs.publish_job_id != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_URL: \${{ vars.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: \${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TYB_RUN_DATE: \${{ needs.daily-guard.outputs.run_date }}
+      TYB_JOB_ID: \${{ inputs.publish_job_id }}
+    steps:
+      - name: Verify queued Reel
+        shell: bash
+        run: |
+          set -euo pipefail
+          rows="$(curl --fail --silent --show-error --get \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            --data-urlencode "select=id,job_id,publish_status" \
+            --data-urlencode "job_id=eq.$TYB_JOB_ID" \
+            --data-urlencode "limit=1" \
+            "$SUPABASE_URL/rest/v1/tyb_reels")"
+          status="$(printf '%s' "$rows" | jq -r '.[0].publish_status // empty')"
+          if [[ "$status" != "not_published" ]]; then
+            echo "::error::Job is not queued (status: \${status:-missing})."
+            exit 1
+          fi
+
+      - name: Publish queued Reel
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload="$(jq -n --arg job_id "$TYB_JOB_ID" '{job_id:$job_id}')"
+          curl --fail --silent --show-error \
+            -X POST \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            --data "$payload" \
+            "$SUPABASE_URL/functions/v1/publish-tyb-reel" \
+            -o /tmp/tyb-publish-response.json
+          cat /tmp/tyb-publish-response.json
+          jq -e '.ok == true and .published == true' /tmp/tyb-publish-response.json >/dev/null
+
+      - name: Mark today's slot published
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload="$(jq -n --arg date "$TYB_RUN_DATE" --arg job_id "$TYB_JOB_ID" '{p_run_date:$date,p_job_id:$job_id}')"
+          curl --fail --silent --show-error -X POST \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            --data "$payload" \
+            "$SUPABASE_URL/rest/v1/rpc/mark_tyb_daily_published"
