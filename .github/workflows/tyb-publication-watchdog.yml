@@ -74,15 +74,15 @@ jobs:
             now_epoch="$(date -u +%s)"
             age_minutes="$(( (now_epoch - claimed_epoch) / 60 ))"
             if [[ "$age_minutes" -lt 30 ]]; then
-              echo "A generation run claimed today's slot ${age_minutes} minutes ago; allowing it to finish."
+              echo "A run claimed today's slot $age_minutes minutes ago; allowing it to finish."
               exit 0
             fi
-            echo "Daily claim is stale (${age_minutes} minutes); attempting safe recovery."
+            echo "Daily claim is stale ($age_minutes minutes); attempting safe recovery."
           else
             echo "No completed publication or active daily claim found (status: $status); attempting recovery."
+          fi
 
-          # Drain the oldest already-generated Reel first. Never generate a second Reel
-          # while an older one is waiting for its publication slot.
+          # Publish the oldest queued Reel before generating another one.
           pending="$(curl --fail --silent --show-error --get \
             -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
@@ -112,8 +112,6 @@ jobs:
             fi
             echo "Dispatched oldest queued Reel job $pending_job_id for today's 5:30 PM IST slot."
             exit 0
-          fi
-
           fi
 
           payload="$(jq -n --arg date "$today" '{ref:"main",inputs:{demo:"false",publish:"true",run_date:$date}}')"
