@@ -67,8 +67,9 @@ jobs:
             fi
             target_date="$REQUESTED_RUN_DATE"
           else
-            local_clock="$(TZ=Asia/Kolkata date +%H%M)"
-            if [[ "$GITHUB_EVENT_NAME" == "schedule" && "$local_clock" -lt "0537" ]]; then
+            local_clock_raw="$(TZ=Asia/Kolkata date +%H%M)"
+            local_clock=$((10#$local_clock_raw))
+            if [[ "$GITHUB_EVENT_NAME" == "schedule" ]] && (( local_clock < 537 )); then
               target_date="$(TZ=Asia/Kolkata date -d 'yesterday' +%F)"
             else
               target_date="$(TZ=Asia/Kolkata date +%F)"
@@ -558,7 +559,7 @@ jobs:
     needs: daily-guard
     if: needs.daily-guard.outputs.proceed == 'true' && inputs.publish_job_id != ''
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 90
     env:
       SUPABASE_URL: ${{ vars.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -582,14 +583,21 @@ jobs:
             exit 1
           fi
 
-      - name: Enforce 6 PM cutoff for queued Reel
+      - name: Enforce 5:30 PM target and 6 PM grace cutoff for queued Reel
         shell: bash
         run: |
           set -euo pipefail
+          target_epoch="$(TZ=Asia/Kolkata date -d "$TYB_RUN_DATE 17:30:00" +%s)"
           grace_end_epoch="$(TZ=Asia/Kolkata date -d "$TYB_RUN_DATE 18:00:00" +%s)"
           now_epoch="$(date +%s)"
+          if (( now_epoch < target_epoch )); then
+            wait_seconds="$((target_epoch - now_epoch))"
+            echo "Queued Reel is ready early. Waiting $wait_seconds seconds for 5:30 PM IST."
+            sleep "$wait_seconds"
+            now_epoch="$(date +%s)"
+          fi
           if (( now_epoch > grace_end_epoch )); then
-            echo "Grace deadline has passed; defer queued Reel to the next day."
+            echo "Grace deadline has passed; defer queued Reel to the next day's slot."
             echo "TYB_SKIP_PUBLICATION=true" >> "$GITHUB_ENV"
             payload="$(jq -n --arg date "$TYB_RUN_DATE" '{p_run_date:$date}')"
             curl --fail --silent --show-error -X POST \
@@ -598,6 +606,8 @@ jobs:
               -H "Content-Type: application/json" \
               --data "$payload" \
               "$SUPABASE_URL/rest/v1/rpc/mark_tyb_daily_failed"
+          else
+            echo "Publication is within the 5:30–6:00 PM IST window."
           fi
 
       - name: Publish queued Reel
