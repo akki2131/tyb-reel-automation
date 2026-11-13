@@ -1,8 +1,8 @@
-name: Generate TYB Reel
+name: Generate TYB Reel (Daily 1 PM IST)
 
 on:
   schedule:
-    - cron: '0 11 * * *' # 4:30 PM India Standard Time (UTC+5:30); prepare before the 5:30 PM slot
+    - cron: '30 7 * * *' # 1:00 PM India Standard Time (UTC+5:30)
   workflow_dispatch:
     inputs:
       demo:
@@ -10,18 +10,8 @@ on:
         type: boolean
         required: true
         default: true
-      publish:
-        description: "Publish to Instagram immediately"
-        type: boolean
-        required: true
-        default: false
       run_date:
         description: "IST publication date for watchdog recovery (YYYY-MM-DD; normally leave blank)"
-        type: string
-        required: false
-        default: ""
-      publish_job_id:
-        description: "Publish an existing queued Reel job instead of generating a new Reel"
         type: string
         required: false
         default: ""
@@ -44,16 +34,14 @@ jobs:
       SUPABASE_URL: ${{ vars.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       DEMO_MODE: ${{ inputs.demo }}
-      PUBLISH_INPUT: ${{ inputs.publish }}
       REQUESTED_RUN_DATE: ${{ inputs.run_date }}
-      PUBLISH_JOB_ID: ${{ inputs.publish_job_id }}
     steps:
       - name: Claim the one-publication-per-day slot
         id: claim
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && ( "$DEMO_MODE" == "true" || "$PUBLISH_INPUT" != "true" ) ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$DEMO_MODE" == "true" ]]; then
             echo "proceed=true" >> "$GITHUB_OUTPUT"
             echo "run_date=" >> "$GITHUB_OUTPUT"
             echo "guarded=false" >> "$GITHUB_OUTPUT"
@@ -67,15 +55,9 @@ jobs:
             fi
             target_date="$REQUESTED_RUN_DATE"
           else
-            local_clock_raw="$(TZ=Asia/Kolkata date +%H%M)"
-            local_clock=$((10#$local_clock_raw))
-            if [[ "$GITHUB_EVENT_NAME" == "schedule" ]] && (( local_clock < 537 )); then
-              target_date="$(TZ=Asia/Kolkata date -d 'yesterday' +%F)"
-            else
-              target_date="$(TZ=Asia/Kolkata date +%F)"
-            fi
+            target_date="$(TZ=Asia/Kolkata date +%F)"
           fi
-          if [[ -z "$PUBLISH_JOB_ID" && "$GITHUB_EVENT_NAME" == "schedule" ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
             pending="$(curl --fail --silent --show-error --get \
               -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
               -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
@@ -112,7 +94,7 @@ jobs:
 
   generate:
     needs: daily-guard
-    if: needs.daily-guard.outputs.proceed == 'true' && inputs.publish_job_id == ''
+    if: needs.daily-guard.outputs.proceed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
@@ -482,160 +464,3 @@ jobs:
             "$SUPABASE_URL/storage/v1/object/tyb-reels/state/state.json"
           echo "Persisted rotation state after successful render and saved records."
 
-      - name: Enforce 5:30 PM IST target and 30-minute grace window
-        if: success() && env.TYB_DEMO_MODE != 'true' && (github.event_name == 'schedule' || inputs.publish == true)
-        shell: bash
-        run: |
-          set -euo pipefail
-          target_date="$TYB_RUN_DATE"
-          if [[ -z "$target_date" ]]; then target_date="$(TZ=Asia/Kolkata date +%F)"; fi
-          today="$(TZ=Asia/Kolkata date +%F)"
-          if [[ "$target_date" != "$today" ]]; then
-            echo "::error::Generation run date does not match today's IST date."
-            exit 1
-          fi
-          target_epoch="$(TZ=Asia/Kolkata date -d "$target_date 17:30:00" +%s)"
-          grace_end_epoch="$(TZ=Asia/Kolkata date -d "$target_date 18:00:00" +%s)"
-          now_epoch="$(date +%s)"
-          if (( now_epoch < target_epoch )); then
-            wait_seconds="$((target_epoch - now_epoch))"
-            echo "Waiting $wait_seconds seconds for the 5:30 PM IST publication slot."
-            sleep "$wait_seconds"
-          fi
-          # Re-check after waiting; runner delays must never push publication past 6 PM.
-          now_epoch="$(date +%s)"
-          if (( now_epoch <= grace_end_epoch )); then
-            echo "Within the 30-minute grace period. Publishing now."
-          else
-            echo "Grace period ended at 6:00 PM IST. Reel remains queued for the next day's slot."
-            echo "TYB_SKIP_PUBLICATION=true" >> "$GITHUB_ENV"
-            failed_payload="$(jq -n --arg date "$TYB_RUN_DATE" '{p_run_date:$date}')"
-            curl --fail --silent --show-error -X POST \
-              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
-              -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
-              -H "Content-Type: application/json" \
-              --data "$failed_payload" \
-              "$SUPABASE_URL/rest/v1/rpc/mark_tyb_daily_failed"
-          fi
-
-      - name: Publish Reel to Instagram
-        if: success() && env.TYB_DEMO_MODE != 'true' && env.TYB_SKIP_PUBLICATION != 'true' && (github.event_name == 'schedule' || inputs.publish == true)
-        shell: bash
-        run: |
-          set -euo pipefail
-          payload="$(jq -n --arg job_id "$TYB_JOB_ID" '{job_id:$job_id}')"
-          http_code="$(curl --silent --show-error --retry 0 \
-            -X POST \
-            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
-            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
-            -H "Content-Type: application/json" \
-            --data "$payload" \
-            -o /tmp/tyb-publish-response.json \
-            -w "%{http_code}" \
-            "$SUPABASE_URL/functions/v1/publish-tyb-reel")"
-          echo "Publishing function HTTP status: $http_code"
-          cat /tmp/tyb-publish-response.json
-          if ! jq -e '.ok == true and .published == true' /tmp/tyb-publish-response.json >/dev/null 2>&1; then
-            echo "::error::Instagram publishing function did not confirm success."
-            exit 1
-          fi
-
-      - name: Mark daily publication slot as published
-        if: success() && env.TYB_SKIP_PUBLICATION != 'true' && env.TYB_DAILY_GUARD == 'true' && (github.event_name == 'schedule' || inputs.publish == true)
-        shell: bash
-        run: |
-          set -euo pipefail
-          payload="$(jq -n --arg date "$TYB_RUN_DATE" --arg job_id "$TYB_JOB_ID" '{p_run_date:$date,p_job_id:$job_id}')"
-          curl --fail --silent --show-error \
-            -X POST \
-            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
-            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
-            -H "Content-Type: application/json" \
-            --data "$payload" \
-            "$SUPABASE_URL/rest/v1/rpc/mark_tyb_daily_published"
-          echo "Daily publication slot marked published for $TYB_RUN_DATE."
-
-  publish-existing:
-    needs: daily-guard
-    if: needs.daily-guard.outputs.proceed == 'true' && inputs.publish_job_id != ''
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    env:
-      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      TYB_RUN_DATE: ${{ needs.daily-guard.outputs.run_date }}
-      TYB_JOB_ID: ${{ inputs.publish_job_id }}
-    steps:
-      - name: Verify queued Reel
-        shell: bash
-        run: |
-          set -euo pipefail
-          rows="$(curl --fail --silent --show-error --get \
-            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
-            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
-            --data-urlencode "select=id,job_id,publish_status" \
-            --data-urlencode "job_id=eq.$TYB_JOB_ID" \
-            --data-urlencode "limit=1" \
-            "$SUPABASE_URL/rest/v1/tyb_reels")"
-          status="$(printf '%s' "$rows" | jq -r '.[0].publish_status // empty')"
-          if [[ "$status" != "not_published" ]]; then
-            echo "::error::Job is not queued (status: ${status:-missing})."
-            exit 1
-          fi
-
-      - name: Enforce 5:30 PM target and 6 PM grace cutoff for queued Reel
-        shell: bash
-        run: |
-          set -euo pipefail
-          target_epoch="$(TZ=Asia/Kolkata date -d "$TYB_RUN_DATE 17:30:00" +%s)"
-          grace_end_epoch="$(TZ=Asia/Kolkata date -d "$TYB_RUN_DATE 18:00:00" +%s)"
-          now_epoch="$(date +%s)"
-          if (( now_epoch < target_epoch )); then
-            wait_seconds="$((target_epoch - now_epoch))"
-            echo "Queued Reel is ready early. Waiting $wait_seconds seconds for 5:30 PM IST."
-            sleep "$wait_seconds"
-            now_epoch="$(date +%s)"
-          fi
-          if (( now_epoch > grace_end_epoch )); then
-            echo "Grace deadline has passed; defer queued Reel to the next day's slot."
-            echo "TYB_SKIP_PUBLICATION=true" >> "$GITHUB_ENV"
-            payload="$(jq -n --arg date "$TYB_RUN_DATE" '{p_run_date:$date}')"
-            curl --fail --silent --show-error -X POST \
-              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
-              -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
-              -H "Content-Type: application/json" \
-              --data "$payload" \
-              "$SUPABASE_URL/rest/v1/rpc/mark_tyb_daily_failed"
-          else
-            echo "Publication is within the 5:30–6:00 PM IST window."
-          fi
-
-      - name: Publish queued Reel
-        if: env.TYB_SKIP_PUBLICATION != 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          payload="$(jq -n --arg job_id "$TYB_JOB_ID" '{job_id:$job_id}')"
-          curl --fail --silent --show-error \
-            -X POST \
-            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
-            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
-            -H "Content-Type: application/json" \
-            --data "$payload" \
-            "$SUPABASE_URL/functions/v1/publish-tyb-reel" \
-            -o /tmp/tyb-publish-response.json
-          cat /tmp/tyb-publish-response.json
-          jq -e '.ok == true and .published == true' /tmp/tyb-publish-response.json >/dev/null
-
-      - name: Mark today's slot published
-        if: env.TYB_SKIP_PUBLICATION != 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          payload="$(jq -n --arg date "$TYB_RUN_DATE" --arg job_id "$TYB_JOB_ID" '{p_run_date:$date,p_job_id:$job_id}')"
-          curl --fail --silent --show-error -X POST \
-            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
-            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
-            -H "Content-Type: application/json" \
-            --data "$payload" \
-            "$SUPABASE_URL/rest/v1/rpc/mark_tyb_daily_published"
