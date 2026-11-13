@@ -28,14 +28,15 @@ jobs:
         run: |
           set -euo pipefail
           today="$(TZ=Asia/Kolkata date +%F)"
-          local_clock="$(TZ=Asia/Kolkata date +%H%M)"
-          if [[ "$local_clock" -lt "1730" ]]; then
+          local_clock_raw="$(TZ=Asia/Kolkata date +%H%M)"
+          local_clock=$((10#$local_clock_raw))
+          if (( local_clock < 1730 )); then
             echo "Before the 5:30 PM IST publication slot; no recovery action is due."
             exit 0
           fi
 
           # After 6:00 PM IST, defer any queued Reel to the next day's slot.
-          if [[ "$local_clock" -gt "1800" ]]; then
+          if (( local_clock > 1800 )); then
             echo "Today's 30-minute grace period has ended. No same-day recovery or late publication."
             exit 0
           fi
