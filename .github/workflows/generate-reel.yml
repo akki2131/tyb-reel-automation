@@ -10,11 +10,6 @@ on:
         type: boolean
         required: true
         default: true
-      run_date:
-        description: "IST publication date for watchdog recovery (YYYY-MM-DD; normally leave blank)"
-        type: string
-        required: false
-        default: ""
 
 permissions:
   contents: read
@@ -34,9 +29,8 @@ jobs:
       SUPABASE_URL: ${{ vars.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       DEMO_MODE: ${{ inputs.demo }}
-      REQUESTED_RUN_DATE: ${{ inputs.run_date }}
     steps:
-      - name: Claim the one-publication-per-day slot
+      - name: Claim the one-generation-per-day slot
         id: claim
         shell: bash
         run: |
@@ -45,18 +39,10 @@ jobs:
             echo "proceed=true" >> "$GITHUB_OUTPUT"
             echo "run_date=" >> "$GITHUB_OUTPUT"
             echo "guarded=false" >> "$GITHUB_OUTPUT"
-            echo "Demo or non-publishing manual run: daily publication guard is not claimed."
+            echo "Demo run: daily generation guard is not claimed."
             exit 0
           fi
-          if [[ -n "$REQUESTED_RUN_DATE" ]]; then
-            if [[ ! "$REQUESTED_RUN_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
-              echo "::error::run_date must use YYYY-MM-DD."
-              exit 1
-            fi
-            target_date="$REQUESTED_RUN_DATE"
-          else
-            target_date="$(TZ=Asia/Kolkata date +%F)"
-          fi
+          target_date="$(TZ=Asia/Kolkata date +%F)"
           if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
             pending="$(curl --fail --silent --show-error --get \
               -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
@@ -87,9 +73,9 @@ jobs:
           echo "proceed=$proceed" >> "$GITHUB_OUTPUT"
           echo "run_date=$target_date" >> "$GITHUB_OUTPUT"
           echo "guarded=true" >> "$GITHUB_OUTPUT"
-          echo "Daily publication guard: $reason (date $target_date)."
+          echo "Daily generation guard: $reason (date $target_date)."
           if [[ "$proceed" != "true" ]]; then
-            echo "A Reel is already published or another run owns today's slot. This run will safely exit."
+            echo "Today's generation slot is already claimed. This run will safely exit."
           fi
 
   generate:
