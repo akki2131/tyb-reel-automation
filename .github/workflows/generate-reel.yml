@@ -9,7 +9,12 @@ on:
         description: "Render a demo script without calling OpenAI"
         type: boolean
         required: true
-        default: true
+        default: false
+      run_date:
+        description: "Intended India-local generation date (YYYY-MM-DD); leave blank for today"
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -29,6 +34,7 @@ jobs:
       SUPABASE_URL: ${{ vars.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       DEMO_MODE: ${{ inputs.demo }}
+      INPUT_RUN_DATE: ${{ inputs.run_date }}
     steps:
       - name: Claim the one-generation-per-day slot
         id: claim
@@ -42,7 +48,11 @@ jobs:
             echo "Demo run: daily generation guard is not claimed."
             exit 0
           fi
-          target_date="$(TZ=Asia/Kolkata date +%F)"
+          target_date="${INPUT_RUN_DATE:-$(TZ=Asia/Kolkata date +%F)}"
+          if ! [[ "$target_date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+            echo "::error::run_date must be YYYY-MM-DD."
+            exit 1
+          fi
           if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
             pending="$(curl --fail --silent --show-error --get \
               -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
