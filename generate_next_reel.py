@@ -143,22 +143,22 @@ def call_ai(question):
         raise RuntimeError(f"AI response was not valid JSON: {e}") from e
     return script, model
 
-def repair_ai_script(question, previous_script, error_message):
+def repair_ai_script(question, previous_script, error_message, attempt_number):
     api_key = os.environ.get("OPENAI_API_KEY", "").strip()
     model = os.environ.get("OPENAI_MODEL", "gpt-4.1-mini")
     payload = {
         "model": model,
-        "temperature": 0.4,
+        "temperature": 0.2,
         "response_format": {"type": "json_object"},
         "messages": [
-            {"role": "system", "content": BRAND_RULES},
+            {"role": "system", "content": BRAND_RULES + "\\nSAFETY PRIORITY: When unsure, remove the health claim entirely. Explain food concepts through taste, variety, preparation, portions, and general dietary patterns. Never make a medical, disease-prevention, treatment, immunity, hormone, detox, or guaranteed weight-loss claim. Do not replace a prohibited claim with a synonym."},
             {"role": "user", "content": (
-                f"Rewrite the ENTIRE script to correct the validation error below. Do not merely edit or shorten it. "
-                f"Return exactly 5 to 8 scenes (inclusive), each with a non-empty text and role 'customer' or 'chef'. "
-                f"The FIRST scene must be role 'customer' and its text must exactly match the approved question. "
-                f"The LAST scene must be role 'chef' and give a natural concluding takeaway. "
-                f"Keep every scene to 28 words or fewer. Preserve the useful ideas from the previous script where possible. "
-                f"Return JSON only in the required shape.\nValidation error: {error_message}\n"
+                f"This is a full rewrite after validation attempt {attempt_number}. Remove the flagged claim and any similar implied claim. "
+                f"Use cautious, everyday food education only; no studies, statistics, medical outcomes, or physiological promises. "
+                f"Return exactly 5 to 8 scenes, each non-empty, role customer/chef, maximum 28 words. "
+                f"The first scene must be the exact approved question as customer; final scene must be chef. "
+                f"If the topic invites a health claim, say what can be stated safely and acknowledge limits rather than making the claim. "
+                f"JSON only in the required shape.\nValidation error: {error_message}\n"
                 f"Question ID: {question['id']}\nApproved question: {question['question']}\n"
                 f"Previous JSON: {json.dumps(previous_script, ensure_ascii=False)}"
             )}
@@ -173,7 +173,7 @@ def repair_ai_script(question, previous_script, error_message):
             data = json.loads(resp.read().decode("utf-8"))
         return json.loads(data["choices"][0]["message"]["content"])
     except Exception as e:
-        raise RuntimeError(f"One automatic script-repair attempt failed: {e}") from e
+        raise RuntimeError(f"Script rewrite attempt {attempt_number} failed: {e}") from e
 
 def demo_script(question):
     return {
@@ -357,18 +357,42 @@ def main():
     state = load_state()
     question, question_index = select_question(state, args.question_id, allow_repeat=args.repeat)
     print(f"Question: {question['id']} — {question['question']}", flush=True)
+    OUTPUT.mkdir(parents=True, exist_ok=True)
+    diagnostics_path = OUTPUT / f"{question['id']}_generation_diagnostics.json"
+    attempts = []
     if args.demo:
         raw_script, model = demo_script(question), "demo"
+        attempts.append({"attempt": 1, "kind": "demo", "raw_script": raw_script})
+        script = validate_script(raw_script, question)
     else:
         raw_script, model = call_ai(question)
-    try:
-        script = validate_script(raw_script, question)
-    except ValueError as first_error:
-        if args.demo:
-            raise
-        print(f"Script validation failed; attempting one automatic repair: {first_error}", flush=True)
-        repaired = repair_ai_script(question, raw_script, str(first_error))
-        script = validate_script(repaired, question)
+        attempts.append({"attempt": 1, "kind": "initial", "raw_script": raw_script})
+        script = None
+        last_error = None
+        for attempt_number in range(1, 4):
+            candidate = raw_script
+            if attempt_number > 1:
+                candidate = repair_ai_script(question, raw_script, str(last_error), attempt_number)
+                attempts.append({"attempt": attempt_number, "kind": "rewrite", "raw_script": candidate})
+            try:
+                script = validate_script(candidate, question)
+                print(f"Script passed validation on attempt {attempt_number}.", flush=True)
+                break
+            except ValueError as error:
+                last_error = error
+                print(f"Script validation failed on attempt {attempt_number}: {error}", flush=True)
+                raw_script = candidate
+        if script is None:
+            diagnostics_path.write_text(json.dumps({
+                "question_id": question["id"], "question": question["question"],
+                "model": model, "status": "validation_failed",
+                "attempts": attempts, "final_error": str(last_error)
+            }, indent=2, ensure_ascii=False), encoding="utf-8")
+            raise ValueError(f"Script failed validation after 3 attempts. Diagnostics: {diagnostics_path.name}. Final error: {last_error}")
+    diagnostics_path.write_text(json.dumps({
+        "question_id": question["id"], "question": question["question"],
+        "model": model, "status": "validated", "attempts": attempts
+    }, indent=2, ensure_ascii=False), encoding="utf-8")
     # Save generated script before rendering for easy troubleshooting/reuse.
     pair_preview = int(state.get("pair_cursor", 0)) % len(TEMPLATE_PAIRS)
     music_preview = int(state.get("music_cursor", 0)) % len(BGM_FILES)
