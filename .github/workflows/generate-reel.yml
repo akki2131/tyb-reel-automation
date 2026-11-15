@@ -352,6 +352,7 @@ jobs:
             output/*.mp4
             output/*_cover.jpg
             output/*_script.json
+            output/*_generation_diagnostics.json
             state/state.json
           if-no-files-found: warn
           retention-days: 14
@@ -459,4 +460,15 @@ jobs:
             --data-binary @state/state.json \
             "$SUPABASE_URL/storage/v1/object/tyb-reels/state/state.json"
           echo "Persisted rotation state after successful render and saved records."
+          if [ -n "${TYB_RUN_DATE:-}" ] && [ -n "${TYB_JOB_ID:-}" ]; then
+            generated_payload="$(jq -n --arg date "$TYB_RUN_DATE" --arg job_id "$TYB_JOB_ID" '{p_run_date:$date,p_job_id:$job_id}')"
+            curl --fail --silent --show-error \
+              -X POST \
+              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Content-Type: application/json" \
+              --data "$generated_payload" \
+              "$SUPABASE_URL/rest/v1/rpc/mark_tyb_daily_generated"
+            echo "Marked the daily generation slot as generated; it will not be retried."
+          fi
 
